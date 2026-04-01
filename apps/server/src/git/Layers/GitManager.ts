@@ -82,20 +82,20 @@ function parseRepositoryNameFromPullRequestUrl(url: string): string | null {
 }
 
 function resolveHeadRepositoryNameWithOwner(
-  pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo,
+  pr: PullRequestHeadRemoteInfo & { url: string },
 ): string | null {
-  const explicitRepository = pullRequest.headRepositoryNameWithOwner?.trim() ?? "";
-  if (explicitRepository.length > 0) {
+  const explicitRepository = normalizeOptionalString(pr.headRepositoryNameWithOwner);
+  if (explicitRepository) {
     return explicitRepository;
   }
 
-  if (!pullRequest.isCrossRepository) {
+  if (!pr.isCrossRepository) {
     return null;
   }
 
-  const ownerLogin = pullRequest.headRepositoryOwnerLogin?.trim() ?? "";
-  const repositoryName = parseRepositoryNameFromPullRequestUrl(pullRequest.url);
-  if (ownerLogin.length === 0 || !repositoryName) {
+  const ownerLogin = normalizeOptionalString(pr.headRepositoryOwnerLogin);
+  const repositoryName = parseRepositoryNameFromPullRequestUrl(pr.url);
+  if (!ownerLogin || !repositoryName) {
     return null;
   }
 
@@ -153,27 +153,6 @@ function normalizeOptionalOwnerLogin(value: string | null | undefined): string |
   return normalized ? normalized.toLowerCase() : null;
 }
 
-function resolvePullRequestHeadRepositoryNameWithOwner(
-  pr: PullRequestHeadRemoteInfo & { url: string },
-) {
-  const explicitRepository = normalizeOptionalString(pr.headRepositoryNameWithOwner);
-  if (explicitRepository) {
-    return explicitRepository;
-  }
-
-  if (!pr.isCrossRepository) {
-    return null;
-  }
-
-  const ownerLogin = normalizeOptionalString(pr.headRepositoryOwnerLogin);
-  const repositoryName = parseRepositoryNameFromPullRequestUrl(pr.url);
-  if (!ownerLogin || !repositoryName) {
-    return null;
-  }
-
-  return `${ownerLogin}/${repositoryName}`;
-}
-
 function matchesBranchHeadContext(
   pr: PullRequestInfo,
   headContext: Pick<
@@ -192,7 +171,7 @@ function matchesBranchHeadContext(
     normalizeOptionalOwnerLogin(headContext.headRepositoryOwnerLogin) ??
     parseRepositoryOwnerLogin(expectedHeadRepository);
   const prHeadRepository = normalizeOptionalRepositoryNameWithOwner(
-    resolvePullRequestHeadRepositoryNameWithOwner(pr),
+    resolveHeadRepositoryNameWithOwner(pr),
   );
   const prHeadOwner =
     normalizeOptionalOwnerLogin(pr.headRepositoryOwnerLogin) ??
@@ -857,10 +836,18 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     result: Pick<GitRunStackedActionResult, "action" | "branch" | "commit" | "push" | "pr">,
   ) {
     const summary = summarizeGitActionResult(result);
-    let latestOpenPr: PullRequestInfo | null = null;
     let currentBranchIsDefault = false;
 
-    if (result.action !== "commit") {
+    const explicitResultPr =
+      (result.pr.status === "created" || result.pr.status === "opened_existing") && result.pr.url
+        ? {
+            url: result.pr.url,
+            state: "open" as const,
+          }
+        : null;
+
+    let latestOpenPr: PullRequestInfo | null = null;
+    if (result.action !== "commit" && !explicitResultPr) {
       const finalStatus = yield* gitCore.statusDetails(cwd);
       if (finalStatus.branch) {
         latestOpenPr = yield* findLatestPr(cwd, {
@@ -878,14 +865,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
     }
 
-    const explicitResultPr =
-      (result.pr.status === "created" || result.pr.status === "opened_existing") && result.pr.url
-        ? {
-            url: result.pr.url,
-            state: "open" as const,
-          }
-        : null;
-    const openPr = latestOpenPr ?? explicitResultPr;
+    const openPr = explicitResultPr ?? latestOpenPr;
 
     const cta =
       result.action === "commit" && result.commit.status === "created"
