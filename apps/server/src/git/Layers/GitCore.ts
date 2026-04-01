@@ -927,7 +927,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
   const listRemoteNames = (cwd: string): Effect.Effect<ReadonlyArray<string>, GitCommandError> =>
     runGitStdout("GitCore.listRemoteNames", cwd, ["remote"]).pipe(
-      Effect.map((stdout) => parseRemoteNames(stdout).toReversed()),
+      Effect.map((stdout) => parseRemoteNames(stdout)),
     );
 
   const resolvePrimaryRemoteName = Effect.fn("resolvePrimaryRemoteName")(function* (cwd: string) {
