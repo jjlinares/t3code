@@ -43,34 +43,6 @@ yay -S t3code-bin
 
 Download the `.deb` package from [GitHub Releases](https://github.com/pingdotgg/t3code/releases).
 
-## Fork Notes
-
-If you're maintaining a custom fork and still want upstream updates:
-
-- Keep `origin` pointed at your fork.
-- Keep `upstream` pointed at `pingdotgg/t3code`.
-- Treat `upstream-main` as a clean mirror of upstream `main`.
-- Keep your custom work on `main` or feature branches based on `main`.
-
-Recommended sync flow:
-
-```bash
-git fetch upstream
-git switch upstream-main
-git merge --ff-only upstream/main
-git push origin upstream-main
-
-git switch main
-git merge upstream-main
-git push origin main
-```
-
-Guidelines:
-
-- Do not hand-edit `upstream-main`.
-- Prefer merging upstream into your public `main` instead of rebasing published history.
-- Keep fork-specific changes isolated where possible so future upstream merges stay cheap.
-
 ## Some notes
 
 We are very very early in this project. Expect bugs.

@@ -51,3 +51,42 @@ Docs:
 - Codex-Monitor (Tauri, feature-complete, strong reference implementation): https://github.com/Dimillian/CodexMonitor
 
 Use these as implementation references when designing protocol handling, UX flows, and operational safeguards.
+
+## Fork Maintenance
+
+Maintain this repo as a fork with a clean upstream mirror.
+
+- Keep `origin` pointed at the fork.
+- Keep `upstream` pointed at `pingdotgg/t3code`.
+- Treat `upstream-main` as a read-only mirror of upstream `main`.
+- Keep fork-specific work on `main` or on feature branches branched from `main`.
+- Never hand-edit `upstream-main`.
+- Merge upstream into public branches. Do not rebase published fork history.
+- Keep fork-specific changes isolated so upstream merges stay cheap.
+
+Use this sync flow:
+
+```bash
+git fetch upstream
+git switch upstream-main
+git merge --ff-only upstream/main
+git push origin upstream-main
+
+git switch main
+git merge upstream-main
+git push origin main
+```
+
+## Current Production Runtime
+
+Run the built Node server as the current production app.
+
+- Build the app with `bun run build`.
+- Run the built server with Node, not Bun. The built server entrypoint depends on `node:sqlite`.
+- Keep the persistent runtime under the user `systemd` service `t3code.service`.
+- After code changes, build and restart the user service.
+- Primary historical logs live in the user `systemd` journal for `t3code.service`.
+- App server log file: `~/.t3/userdata/logs/server.log`
+- Provider logs dir: `~/.t3/userdata/logs/provider`
+- Terminal logs dir: `~/.t3/userdata/logs/terminals`
+- Crash/restart history may exist in the `systemd` journal even when it is not present in `server.log`.
