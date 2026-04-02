@@ -7,10 +7,12 @@ This document covers how to run desktop releases from one tag, first without sig
 - Trigger: push tag matching `v*.*.*`.
 - Runs quality gates first: lint, typecheck, test.
 - Builds four artifacts in parallel:
-  - macOS `arm64` DMG
-  - macOS `x64` DMG
-  - Linux `x64` AppImage
-  - Windows `x64` NSIS installer
+- Builds five artifacts in parallel:
+- macOS `arm64` DMG
+- macOS `x64` DMG
+- Linux `x64` `.deb`
+- Linux `x64` AppImage
+- Windows `x64` NSIS installer
 - Publishes one GitHub Release with all produced files.
   - Versions with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
   - Only plain `X.Y.Z` releases are marked as the repository's latest release.
@@ -36,6 +38,8 @@ This document covers how to run desktop releases from one tag, first without sig
   - platform installers (`.exe`, `.dmg`, `.AppImage`, plus macOS `.zip` for Squirrel.Mac update payloads)
   - `latest*.yml` metadata
   - `*.blockmap` files (used for differential downloads)
+- Additional Linux release artifact:
+  - `.deb` packages are published for Debian/Ubuntu installs, but Linux in-app auto-update still requires the AppImage build.
 - macOS metadata note:
   - `electron-updater` reads `latest-mac.yml` for both Intel and Apple Silicon.
   - The workflow merges the per-arch mac manifests into one `latest-mac.yml` before publishing the GitHub Release.
