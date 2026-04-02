@@ -14,6 +14,15 @@ import { ModelSelection } from "./orchestration";
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
+export const MAX_FONT_FAMILY_LENGTH = 256;
+
+export const UiFontSize = Schema.Literals(["sm", "md", "lg"]);
+export type UiFontSize = typeof UiFontSize.Type;
+export const DEFAULT_UI_FONT_SIZE: UiFontSize = "md";
+
+export const TerminalFontSize = Schema.Literals(["sm", "md", "lg", "xl"]);
+export type TerminalFontSize = typeof TerminalFontSize.Type;
+export const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = "md";
 
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
@@ -34,6 +43,16 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
   ),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
+  uiFontSize: UiFontSize.pipe(Schema.withDecodingDefault(() => DEFAULT_UI_FONT_SIZE)),
+  terminalFontSize: TerminalFontSize.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_TERMINAL_FONT_SIZE),
+  ),
+  uiFontFamily: Schema.String.check(Schema.isMaxLength(MAX_FONT_FAMILY_LENGTH)).pipe(
+    Schema.withDecodingDefault(() => ""),
+  ),
+  monoFontFamily: Schema.String.check(Schema.isMaxLength(MAX_FONT_FAMILY_LENGTH)).pipe(
+    Schema.withDecodingDefault(() => ""),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 

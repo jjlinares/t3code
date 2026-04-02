@@ -12,6 +12,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  MAX_FONT_FAMILY_LENGTH,
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type ServerProvider,
@@ -22,6 +23,11 @@ import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
+import {
+  normalizeFontFamilyOverride,
+  TERMINAL_FONT_SIZE_OPTIONS,
+  UI_FONT_SIZE_OPTIONS,
+} from "../../appTypography";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -462,6 +468,20 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
+      ...(settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize
+        ? ["Interface font size"]
+        : []),
+      ...(settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize
+        ? ["Terminal font size"]
+        : []),
+      ...((normalizeFontFamilyOverride(settings.uiFontFamily) ?? "") !==
+      (normalizeFontFamilyOverride(DEFAULT_UNIFIED_SETTINGS.uiFontFamily) ?? "")
+        ? ["Interface font family"]
+        : []),
+      ...((normalizeFontFamilyOverride(settings.monoFontFamily) ?? "") !==
+      (normalizeFontFamilyOverride(DEFAULT_UNIFIED_SETTINGS.monoFontFamily) ?? "")
+        ? ["Code and terminal font family"]
+        : []),
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
         : []),
@@ -488,8 +508,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.monoFontFamily,
+      settings.terminalFontSize,
       settings.timestampFormat,
       theme,
+      settings.uiFontFamily,
+      settings.uiFontSize,
     ],
   );
 
@@ -563,6 +587,12 @@ export function GeneralSettingsPanel() {
   const availableEditors = useServerAvailableEditors();
   const serverProviders = useServerProviders();
   const codexHomePath = settings.providers.codex.homePath;
+  const selectedUiFontSizeLabel =
+    UI_FONT_SIZE_OPTIONS.find((option) => option.value === settings.uiFontSize)?.label ??
+    settings.uiFontSize;
+  const selectedTerminalFontSizeLabel =
+    TERMINAL_FONT_SIZE_OPTIONS.find((option) => option.value === settings.terminalFontSize)
+      ?.label ?? settings.terminalFontSize;
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
@@ -812,6 +842,150 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+
+        <SettingsRow
+          title="Interface font size"
+          description="Scale the app UI without changing browser zoom."
+          resetAction={
+            settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize ? (
+              <SettingResetButton
+                label="interface font size"
+                onClick={() =>
+                  updateSettings({
+                    uiFontSize: DEFAULT_UNIFIED_SETTINGS.uiFontSize,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.uiFontSize}
+              onValueChange={(value) => {
+                if (value === "sm" || value === "md" || value === "lg") {
+                  updateSettings({ uiFontSize: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Interface font size">
+                <SelectValue>{selectedUiFontSizeLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {UI_FONT_SIZE_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Terminal font size"
+          description="Change text size only in the built-in terminal drawer."
+          resetAction={
+            settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize ? (
+              <SettingResetButton
+                label="terminal font size"
+                onClick={() =>
+                  updateSettings({
+                    terminalFontSize: DEFAULT_UNIFIED_SETTINGS.terminalFontSize,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.terminalFontSize}
+              onValueChange={(value) => {
+                if (value === "sm" || value === "md" || value === "lg" || value === "xl") {
+                  updateSettings({ terminalFontSize: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-44" aria-label="Terminal font size">
+                <SelectValue>{selectedTerminalFontSizeLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {TERMINAL_FONT_SIZE_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Interface font family"
+          description="Optional local override for regular UI text. Uses installed fonts only."
+          resetAction={
+            (normalizeFontFamilyOverride(settings.uiFontFamily) ?? "") !==
+            (normalizeFontFamilyOverride(DEFAULT_UNIFIED_SETTINGS.uiFontFamily) ?? "") ? (
+              <SettingResetButton
+                label="interface font family"
+                onClick={() =>
+                  updateSettings({
+                    uiFontFamily: DEFAULT_UNIFIED_SETTINGS.uiFontFamily,
+                  })
+                }
+              />
+            ) : null
+          }
+        >
+          <div className="mt-3">
+            <Input
+              value={settings.uiFontFamily}
+              onChange={(event) => updateSettings({ uiFontFamily: event.target.value })}
+              onBlur={(event) =>
+                updateSettings({
+                  uiFontFamily: normalizeFontFamilyOverride(event.target.value) ?? "",
+                })
+              }
+              placeholder="Atkinson Hyperlegible, system-ui, sans-serif"
+              spellCheck={false}
+              maxLength={MAX_FONT_FAMILY_LENGTH}
+              aria-label="Interface font family"
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title="Code and terminal font family"
+          description="Optional local override for code blocks, inline code, and the terminal."
+          resetAction={
+            (normalizeFontFamilyOverride(settings.monoFontFamily) ?? "") !==
+            (normalizeFontFamilyOverride(DEFAULT_UNIFIED_SETTINGS.monoFontFamily) ?? "") ? (
+              <SettingResetButton
+                label="code and terminal font family"
+                onClick={() =>
+                  updateSettings({
+                    monoFontFamily: DEFAULT_UNIFIED_SETTINGS.monoFontFamily,
+                  })
+                }
+              />
+            ) : null
+          }
+        >
+          <div className="mt-3">
+            <Input
+              value={settings.monoFontFamily}
+              onChange={(event) => updateSettings({ monoFontFamily: event.target.value })}
+              onBlur={(event) =>
+                updateSettings({
+                  monoFontFamily: normalizeFontFamilyOverride(event.target.value) ?? "",
+                })
+              }
+              placeholder={'"SF Mono", Menlo, monospace'}
+              spellCheck={false}
+              maxLength={MAX_FONT_FAMILY_LENGTH}
+              aria-label="Code and terminal font family"
+            />
+          </div>
+        </SettingsRow>
 
         <SettingsRow
           title="Diff line wrapping"

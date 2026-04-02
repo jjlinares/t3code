@@ -13,4 +13,20 @@ describe("buildLegacyClientSettingsMigrationPatch", () => {
       confirmThreadDelete: false,
     });
   });
+
+  it("migrates typography settings from legacy local settings", () => {
+    expect(
+      buildLegacyClientSettingsMigrationPatch({
+        uiFontSize: "lg",
+        terminalFontSize: "xl",
+        uiFontFamily: "Atkinson Hyperlegible, system-ui, sans-serif",
+        monoFontFamily: '"SF Mono", Menlo, monospace',
+      }),
+    ).toEqual({
+      uiFontSize: "lg",
+      terminalFontSize: "xl",
+      uiFontFamily: "Atkinson Hyperlegible, system-ui, sans-serif",
+      monoFontFamily: '"SF Mono", Menlo, monospace',
+    });
+  });
 });

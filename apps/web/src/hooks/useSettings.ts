@@ -21,9 +21,12 @@ import {
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
+  MAX_FONT_FAMILY_LENGTH,
   SidebarProjectSortOrder,
   SidebarThreadSortOrder,
+  TerminalFontSize,
   TimestampFormat,
+  UiFontSize,
   UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { ensureNativeApi } from "~/nativeApi";
@@ -216,6 +219,28 @@ export function buildLegacyClientSettingsMigrationPatch(
 
   if (Schema.is(TimestampFormat)(legacySettings.timestampFormat)) {
     patch.timestampFormat = legacySettings.timestampFormat;
+  }
+
+  if (Schema.is(UiFontSize)(legacySettings.uiFontSize)) {
+    patch.uiFontSize = legacySettings.uiFontSize;
+  }
+
+  if (Schema.is(TerminalFontSize)(legacySettings.terminalFontSize)) {
+    patch.terminalFontSize = legacySettings.terminalFontSize;
+  }
+
+  if (
+    Predicate.isString(legacySettings.uiFontFamily) &&
+    legacySettings.uiFontFamily.length <= MAX_FONT_FAMILY_LENGTH
+  ) {
+    patch.uiFontFamily = legacySettings.uiFontFamily;
+  }
+
+  if (
+    Predicate.isString(legacySettings.monoFontFamily) &&
+    legacySettings.monoFontFamily.length <= MAX_FONT_FAMILY_LENGTH
+  ) {
+    patch.monoFontFamily = legacySettings.monoFontFamily;
   }
 
   return patch;
