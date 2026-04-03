@@ -29,6 +29,7 @@ import {
   type TerminalContextDraft,
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
+import { QUOTE_CLOSE_TAG, QUOTE_OPEN_TAG } from "../lib/quotedText";
 import { isMacPlatform } from "../lib/utils";
 import { __resetNativeApiForTests } from "../nativeApi";
 import { getRouter } from "../router";
@@ -616,6 +617,50 @@ function createSnapshotWithPlanFollowUpPrompt(): OrchestrationReadModel {
   };
 }
 
+function createSnapshotForTargetAssistant(options: {
+  targetMessageId: MessageId;
+  targetText: string;
+}): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-target-assistant-quote" as MessageId,
+    targetText: "assistant quote target",
+  });
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? Object.assign({}, thread, {
+            messages: thread.messages.map((message) =>
+              message.id === ("msg-assistant-21" as MessageId)
+                ? Object.assign({}, message, {
+                    id: options.targetMessageId,
+                    text: options.targetText,
+                    updatedAt: isoAt(11),
+                  })
+                : message,
+            ),
+            updatedAt: isoAt(11),
+          })
+        : thread,
+    ),
+  };
+}
+
+function buildQuotedPrompt(...parts: string[]): string {
+  return parts.map((part) => [QUOTE_OPEN_TAG, part, QUOTE_CLOSE_TAG].join("\n")).join("\n");
+}
+
+function buildPromptWithQuotedBlocks(blocks: string[], trailingText = ""): string {
+  const promptParts = blocks.flatMap((block, index) =>
+    index < blocks.length - 1 ? [buildQuotedPrompt(block), ""] : [buildQuotedPrompt(block)],
+  );
+  if (trailingText.length > 0) {
+    promptParts.push("", trailingText);
+  }
+  return promptParts.join("\n");
+}
+
 function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   const customResult = customWsRpcResolver?.(body);
   if (customResult !== undefined) {
@@ -816,6 +861,69 @@ async function waitForButtonContainingText(text: string): Promise<HTMLButtonElem
     () => findButtonContainingText(text),
     `Unable to find button containing "${text}".`,
   );
+}
+
+function findTextNodeContaining(root: HTMLElement, text: string): Text | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let current = walker.nextNode();
+  while (current) {
+    if (current.textContent?.includes(text)) {
+      return current as Text;
+    }
+    current = walker.nextNode();
+  }
+  return null;
+}
+
+async function selectAssistantText(selectionText: string): Promise<void> {
+  const assistantRoot = await waitForElement(
+    () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[data-assistant-quote-root="true"]')).find(
+        (element) => element.textContent?.includes(selectionText),
+      ) ?? null,
+    `Unable to find assistant message containing "${selectionText}".`,
+  );
+
+  await vi.waitFor(
+    () => {
+      const textNode = findTextNodeContaining(assistantRoot, selectionText);
+      expect(textNode, `Unable to find text node containing "${selectionText}".`).toBeTruthy();
+      if (!textNode) {
+        return;
+      }
+      const startOffset = textNode.textContent?.indexOf(selectionText) ?? -1;
+      expect(startOffset).toBeGreaterThanOrEqual(0);
+
+      const range = document.createRange();
+      range.setStart(textNode, startOffset);
+      range.setEnd(textNode, startOffset + selectionText.length);
+
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      expect(selection?.toString()).toBe(selectionText);
+    },
+    { timeout: 8_000, interval: 16 },
+  );
+}
+
+async function releasePointerOutsideAssistantText(): Promise<void> {
+  document.body.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  await vi.waitFor(
+    () => {
+      expect(document.querySelector('[data-testid="assistant-quote-button"]')).toBeTruthy();
+    },
+    { timeout: 8_000, interval: 16 },
+  );
+}
+
+async function scrollMessagesContainerBy(deltaY: number): Promise<void> {
+  const scrollContainer = await waitForElement(
+    () => document.querySelector<HTMLElement>('[data-chat-scroll-container="true"]'),
+    "Unable to find chat scroll container.",
+  );
+  scrollContainer.scrollTop += deltaY;
+  scrollContainer.dispatchEvent(new Event("scroll", { bubbles: true }));
 }
 
 async function expectComposerActionsContained(): Promise<void> {
@@ -2695,6 +2803,205 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(menuRect.height).toBeGreaterThan(0);
           expect(menuRect.bottom).toBeLessThanOrEqual(composerRect.bottom);
           expect(hitTarget instanceof Element && menuItem.contains(hitTarget)).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("quotes selected assistant text into the composer", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetAssistant({
+        targetMessageId: "msg-assistant-quote-target" as MessageId,
+        targetText: ["Implementation notes", "", "Selected follow-up detail"].join("\n"),
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await selectAssistantText("Selected follow-up detail");
+
+      await expect.element(page.getByTestId("assistant-quote-button")).toBeInTheDocument();
+      await page.getByTestId("assistant-quote-button").click();
+
+      await vi.waitFor(
+        () => {
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+            `${buildQuotedPrompt("Selected follow-up detail")}\n\n`,
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      await expect.element(page.getByTestId("composer-quote-block")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows quote after releasing the selection outside the assistant message box", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetAssistant({
+        targetMessageId: "msg-assistant-quote-outside-target" as MessageId,
+        targetText: ["Implementation notes", "", "Selected outside release detail"].join("\n"),
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await selectAssistantText("Selected outside release detail");
+      await releasePointerOutsideAssistantText();
+
+      await expect.element(page.getByTestId("assistant-quote-button")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps quote visible while scrolling with the selected assistant text still in view", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetAssistant({
+        targetMessageId: "msg-assistant-quote-scroll-target" as MessageId,
+        targetText: ["Implementation notes", "", "Selected scroll detail"].join("\n"),
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await selectAssistantText("Selected scroll detail");
+      await releasePointerOutsideAssistantText();
+      await scrollMessagesContainerBy(24);
+
+      await expect.element(page.getByTestId("assistant-quote-button")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps trailing text intact when quoting after multiple existing quote cards", async () => {
+    useComposerDraftStore
+      .getState()
+      .setPrompt(
+        THREAD_ID,
+        buildPromptWithQuotedBlocks(["First quoted block", "Second quoted block"], "what about"),
+      );
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetAssistant({
+        targetMessageId: "msg-assistant-quote-multi-target" as MessageId,
+        targetText: ["Implementation notes", "", "Third selected detail"].join("\n"),
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await vi.waitFor(
+        () => {
+          expect(document.querySelectorAll('[data-testid="composer-quote-block"]')).toHaveLength(2);
+          expect(document.body.textContent).toContain("what about");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await selectAssistantText("Third selected detail");
+      await expect.element(page.getByTestId("assistant-quote-button")).toBeInTheDocument();
+      await page.getByTestId("assistant-quote-button").click();
+
+      await vi.waitFor(
+        () => {
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+            [
+              buildQuotedPrompt("First quoted block"),
+              "",
+              buildQuotedPrompt("Second quoted block"),
+              "",
+              "what about",
+              "",
+              buildQuotedPrompt("Third selected detail"),
+              "",
+              "",
+            ].join("\n"),
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the caret usable after clicking a rendered quote card", async () => {
+    useComposerDraftStore
+      .getState()
+      .setPrompt(THREAD_ID, `${buildQuotedPrompt("First quoted block")}\n\n`);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-quote-card-caret-target" as MessageId,
+        targetText: "quote card caret target",
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await expect.element(page.getByTestId("composer-quote-block")).toBeInTheDocument();
+
+      await page.getByTestId("composer-quote-block").click();
+      const composerEditor = await waitForComposerEditor();
+      composerEditor.focus();
+      document.execCommand("insertText", false, "after");
+
+      await vi.waitFor(
+        () => {
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+            [buildQuotedPrompt("First quoted block"), "", "after"].join("\n"),
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("removes a rendered quote card with backspace", async () => {
+    useComposerDraftStore
+      .getState()
+      .setPrompt(THREAD_ID, `${buildQuotedPrompt("First quoted block")}\n\n`);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-quote-card-backspace-target" as MessageId,
+        targetText: "quote card backspace target",
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await expect.element(page.getByTestId("composer-quote-block")).toBeInTheDocument();
+
+      await page.getByTestId("composer-quote-block").click();
+      const composerEditor = await waitForComposerEditor();
+      composerEditor.focus();
+      composerEditor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Backspace",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('[data-testid="composer-quote-block"]')).toBeNull();
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toBeUndefined();
         },
         { timeout: 8_000, interval: 16 },
       );

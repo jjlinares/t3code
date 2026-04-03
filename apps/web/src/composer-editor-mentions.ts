@@ -2,10 +2,15 @@ import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
 } from "./lib/terminalContext";
+import { findQuotedBlockAt } from "./lib/quotedText";
 
 export type ComposerPromptSegment =
   | {
       type: "text";
+      text: string;
+    }
+  | {
+      type: "quote-block";
       text: string;
     }
   | {
@@ -64,6 +69,58 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
   return segments;
 }
 
+function countAdjacentLineBreakCharsBefore(text: string, start: number, minimum: number): number {
+  let count = 0;
+  let chars = 0;
+  let cursor = start;
+  while (cursor > 0) {
+    if (text[cursor - 1] === "\n") {
+      count += 1;
+      chars += 1;
+      cursor -= 1;
+      if (cursor > 0 && text[cursor - 1] === "\r") {
+        chars += 1;
+        cursor -= 1;
+      }
+      continue;
+    }
+    if (text[cursor - 1] === "\r") {
+      count += 1;
+      chars += 1;
+      cursor -= 1;
+      continue;
+    }
+    break;
+  }
+  return count >= minimum ? chars : 0;
+}
+
+function countAdjacentLineBreakCharsAfter(text: string, start: number, minimum: number): number {
+  let count = 0;
+  let chars = 0;
+  let cursor = start;
+  while (cursor < text.length) {
+    if (text[cursor] === "\r") {
+      count += 1;
+      chars += 1;
+      cursor += 1;
+      if (text[cursor] === "\n") {
+        chars += 1;
+        cursor += 1;
+      }
+      continue;
+    }
+    if (text[cursor] === "\n") {
+      count += 1;
+      chars += 1;
+      cursor += 1;
+      continue;
+    }
+    break;
+  }
+  return count >= minimum ? chars : 0;
+}
+
 export function splitPromptIntoComposerSegments(
   prompt: string,
   terminalContexts: ReadonlyArray<TerminalContextDraft> = [],
@@ -76,20 +133,45 @@ export function splitPromptIntoComposerSegments(
   let textCursor = 0;
   let terminalContextIndex = 0;
 
-  for (let index = 0; index < prompt.length; index += 1) {
-    if (prompt[index] !== INLINE_TERMINAL_CONTEXT_PLACEHOLDER) {
+  let index = 0;
+  while (index < prompt.length) {
+    const quotedBlockMatch = findQuotedBlockAt(prompt, index);
+    if (quotedBlockMatch) {
+      const leadingNewlineCount = countAdjacentLineBreakCharsBefore(prompt, index, 2);
+      const quoteStart = index - Math.min(index - textCursor, leadingNewlineCount);
+      const trailingNewlineCount = countAdjacentLineBreakCharsAfter(
+        prompt,
+        quotedBlockMatch.end,
+        2,
+      );
+      const quoteEnd = quotedBlockMatch.end + trailingNewlineCount;
+      if (quoteStart > textCursor) {
+        segments.push(...splitPromptTextIntoComposerSegments(prompt.slice(textCursor, quoteStart)));
+      }
+      segments.push({
+        type: "quote-block",
+        text: prompt.slice(quoteStart, quoteEnd),
+      });
+      index = quoteEnd;
+      textCursor = quoteEnd;
       continue;
     }
 
-    if (index > textCursor) {
-      segments.push(...splitPromptTextIntoComposerSegments(prompt.slice(textCursor, index)));
+    if (prompt[index] === INLINE_TERMINAL_CONTEXT_PLACEHOLDER) {
+      if (index > textCursor) {
+        segments.push(...splitPromptTextIntoComposerSegments(prompt.slice(textCursor, index)));
+      }
+      segments.push({
+        type: "terminal-context",
+        context: terminalContexts[terminalContextIndex] ?? null,
+      });
+      terminalContextIndex += 1;
+      index += 1;
+      textCursor = index;
+      continue;
     }
-    segments.push({
-      type: "terminal-context",
-      context: terminalContexts[terminalContextIndex] ?? null,
-    });
-    terminalContextIndex += 1;
-    textCursor = index + 1;
+
+    index += 1;
   }
 
   if (textCursor < prompt.length) {

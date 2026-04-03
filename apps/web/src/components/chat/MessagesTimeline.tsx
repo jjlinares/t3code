@@ -52,6 +52,7 @@ import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
+import { normalizeQuotedSelection } from "~/lib/quotedText";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
@@ -85,6 +86,8 @@ interface MessagesTimelineProps {
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
+  onQuoteAssistantText?: (text: string) => void;
+  quoteComposerDisabled?: boolean;
   onVirtualizerSnapshot?: (snapshot: {
     totalSize: number;
     measurements: ReadonlyArray<{
@@ -120,10 +123,33 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
+  onQuoteAssistantText,
+  quoteComposerDisabled = false,
   onVirtualizerSnapshot,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
+  const [quoteAction, setQuoteAction] = useState<AssistantQuoteActionState | null>(null);
+
+  const clearQuoteAction = useCallback(() => {
+    setQuoteAction(null);
+  }, []);
+
+  const updateQuoteAction = useCallback(() => {
+    if (!onQuoteAssistantText || quoteComposerDisabled) {
+      setQuoteAction(null);
+      return;
+    }
+    const timelineRoot = timelineRootRef.current;
+    if (!timelineRoot) {
+      setQuoteAction(null);
+      return;
+    }
+    const nextQuoteAction = readAssistantQuoteActionState(timelineRoot);
+    setQuoteAction((current) =>
+      quoteActionsEqual(current, nextQuoteAction) ? current : nextQuoteAction,
+    );
+  }, [onQuoteAssistantText, quoteComposerDisabled]);
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;
@@ -264,6 +290,37 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }
     };
   }, []);
+  useEffect(() => {
+    if (!onQuoteAssistantText || quoteComposerDisabled) {
+      setQuoteAction(null);
+      return;
+    }
+
+    const handleSelectionChange = () => {
+      updateQuoteAction();
+    };
+    const handlePointerUp = () => {
+      window.requestAnimationFrame(updateQuoteAction);
+    };
+    const handleWindowResize = () => {
+      window.requestAnimationFrame(updateQuoteAction);
+    };
+    const handleScroll = () => {
+      window.requestAnimationFrame(updateQuoteAction);
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("resize", handleWindowResize);
+    scrollContainer?.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("resize", handleWindowResize);
+      scrollContainer?.removeEventListener("scroll", handleScroll);
+    };
+  }, [onQuoteAssistantText, quoteComposerDisabled, scrollContainer, updateQuoteAction]);
   useLayoutEffect(() => {
     if (!onVirtualizerSnapshot) {
       return;
@@ -450,7 +507,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 </div>
               )}
               <div className="min-w-0 px-1 py-0.5">
-                <ChatMarkdown
+                <AssistantMessageMarkdown
                   text={messageText}
                   cwd={markdownCwd}
                   isStreaming={Boolean(row.message.streaming)}
@@ -569,7 +626,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     <div
       ref={timelineRootRef}
       data-timeline-root="true"
-      className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      className="relative mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
     >
       {virtualizedRowCount > 0 && (
         <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
@@ -599,6 +656,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {nonVirtualizedRows.map((row) => (
         <div key={`non-virtual-row:${row.id}`}>{renderRowContent(row)}</div>
       ))}
+      {quoteAction ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          data-testid="assistant-quote-button"
+          className="absolute z-20 -translate-x-1/2 -translate-y-full border-border !bg-popover text-popover-foreground shadow-xl hover:!bg-popover dark:!bg-popover dark:hover:!bg-popover"
+          style={{ top: `${quoteAction.top}px`, left: `${quoteAction.left}px` }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onQuoteAssistantText?.(quoteAction.text);
+            clearTextSelection();
+            clearQuoteAction();
+          }}
+        >
+          Quote
+        </Button>
+      ) : null}
     </div>
   );
 });
@@ -639,6 +719,117 @@ function formatMessageMeta(
   if (!duration) return formatTimestamp(createdAt, timestampFormat);
   return `${formatTimestamp(createdAt, timestampFormat)} • ${duration}`;
 }
+
+interface AssistantQuoteActionState {
+  text: string;
+  top: number;
+  left: number;
+  messageId: string;
+}
+
+function clearTextSelection(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.getSelection()?.removeAllRanges();
+}
+
+function getElementForSelectionNode(node: Node | null): HTMLElement | null {
+  if (!node) {
+    return null;
+  }
+  return node instanceof HTMLElement ? node : node.parentElement;
+}
+
+function findAssistantMessageElement(
+  timelineRoot: HTMLElement,
+  node: Node | null,
+): HTMLElement | null {
+  const element = getElementForSelectionNode(node);
+  if (!element) {
+    return null;
+  }
+  const assistantMessageElement = element.closest<HTMLElement>(
+    '[data-message-role="assistant"][data-message-id]',
+  );
+  if (!assistantMessageElement || !timelineRoot.contains(assistantMessageElement)) {
+    return null;
+  }
+  return assistantMessageElement;
+}
+
+function readAssistantQuoteActionState(
+  timelineRoot: HTMLElement,
+): AssistantQuoteActionState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return null;
+  }
+  const anchorMessageElement = findAssistantMessageElement(timelineRoot, selection.anchorNode);
+  const focusMessageElement = findAssistantMessageElement(timelineRoot, selection.focusNode);
+  if (
+    !anchorMessageElement ||
+    !focusMessageElement ||
+    anchorMessageElement !== focusMessageElement
+  ) {
+    return null;
+  }
+
+  const text = normalizeQuotedSelection(selection.toString());
+  if (text.length === 0) {
+    return null;
+  }
+
+  const range = selection.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    return null;
+  }
+
+  const timelineRect = timelineRoot.getBoundingClientRect();
+  const minimumHorizontalInset = 44;
+  const left = clamp(rect.left + rect.width / 2 - timelineRect.left, {
+    minimum: minimumHorizontalInset,
+    maximum: Math.max(minimumHorizontalInset, timelineRect.width - minimumHorizontalInset),
+  });
+  const top = Math.max(40, rect.top - timelineRect.top - 8);
+
+  return {
+    text,
+    top,
+    left,
+    messageId: anchorMessageElement.dataset.messageId ?? "",
+  };
+}
+
+function quoteActionsEqual(
+  left: AssistantQuoteActionState | null,
+  right: AssistantQuoteActionState | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return left.text === right.text && left.top === right.top && left.left === right.left;
+}
+
+const AssistantMessageMarkdown = memo(function AssistantMessageMarkdown(props: {
+  text: string;
+  cwd: string | undefined;
+  isStreaming: boolean;
+}) {
+  return (
+    <div data-assistant-quote-root="true" className="relative">
+      <ChatMarkdown text={props.text} cwd={props.cwd} isStreaming={props.isStreaming} />
+    </div>
+  );
+});
 
 const UserMessageTerminalContextInlineLabel = memo(
   function UserMessageTerminalContextInlineLabel(props: { context: ParsedTerminalContextEntry }) {

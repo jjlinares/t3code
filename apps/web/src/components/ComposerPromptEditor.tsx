@@ -13,10 +13,12 @@ import {
   $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
+  $isNodeSelection,
   $isTextNode,
   $createLineBreakNode,
   $createParagraphNode,
   $createTextNode,
+  $getNodeByKey,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
   KEY_ARROW_RIGHT_COMMAND,
@@ -63,6 +65,7 @@ import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
 } from "~/lib/terminalContext";
+import { formatQuotedBlockDisplayText } from "~/lib/quotedText";
 import { cn } from "~/lib/utils";
 import { basenameOfPath, getVscodeIconUrlForEntry, inferEntryKindFromPath } from "~/vscode-icons";
 import {
@@ -87,6 +90,15 @@ type SerializedComposerTerminalContextNode = Spread<
   {
     context: TerminalContextDraft;
     type: "composer-terminal-context";
+    version: 1;
+  },
+  SerializedLexicalNode
+>;
+
+type SerializedComposerQuoteBlockNode = Spread<
+  {
+    text: string;
+    type: "composer-quote-block";
     version: 1;
   },
   SerializedLexicalNode
@@ -174,6 +186,32 @@ function ComposerTerminalContextDecorator(props: { context: TerminalContextDraft
   return <ComposerPendingTerminalContextChip context={props.context} />;
 }
 
+function ComposerQuoteBlockDecorator(props: { nodeKey: NodeKey; text: string }) {
+  const [editor] = useLexicalComposerContext();
+
+  return (
+    <div
+      data-testid="composer-quote-block"
+      className="rounded-lg border border-border/70 bg-muted/40 px-2 py-1.5"
+      onMouseDown={(event) => {
+        event.preventDefault();
+        editor.focus();
+        editor.update(() => {
+          const quoteNode = $getNodeByKey(props.nodeKey);
+          if (!(quoteNode instanceof ComposerQuoteBlockNode)) {
+            return;
+          }
+          $setSelectionAtComposerOffset(getAbsoluteOffsetForPoint(quoteNode, 1));
+        });
+      }}
+    >
+      <div className="max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
+        "{formatQuotedBlockDisplayText(props.text)}"
+      </div>
+    </div>
+  );
+}
+
 class ComposerTerminalContextNode extends DecoratorNode<ReactElement> {
   __context: TerminalContextDraft;
 
@@ -234,12 +272,75 @@ function $createComposerTerminalContextNode(
   return $applyNodeReplacement(new ComposerTerminalContextNode(context));
 }
 
+class ComposerQuoteBlockNode extends DecoratorNode<ReactElement> {
+  __text: string;
+
+  static override getType(): string {
+    return "composer-quote-block";
+  }
+
+  static override clone(node: ComposerQuoteBlockNode): ComposerQuoteBlockNode {
+    return new ComposerQuoteBlockNode(node.__text, node.__key);
+  }
+
+  static override importJSON(
+    serializedNode: SerializedComposerQuoteBlockNode,
+  ): ComposerQuoteBlockNode {
+    return $createComposerQuoteBlockNode(serializedNode.text);
+  }
+
+  constructor(text: string, key?: NodeKey) {
+    super(key);
+    this.__text = text;
+  }
+
+  override exportJSON(): SerializedComposerQuoteBlockNode {
+    return {
+      ...super.exportJSON(),
+      text: this.__text,
+      type: "composer-quote-block",
+      version: 1,
+    };
+  }
+
+  override createDOM(): HTMLElement {
+    const dom = document.createElement("div");
+    dom.contentEditable = "false";
+    return dom;
+  }
+
+  override updateDOM(): false {
+    return false;
+  }
+
+  override getTextContent(): string {
+    return this.__text;
+  }
+
+  override isInline(): false {
+    return false;
+  }
+
+  override decorate(): ReactElement {
+    return <ComposerQuoteBlockDecorator nodeKey={this.getKey()} text={this.__text} />;
+  }
+}
+
+function $createComposerQuoteBlockNode(text: string): ComposerQuoteBlockNode {
+  return $applyNodeReplacement(new ComposerQuoteBlockNode(text));
+}
+
 type ComposerInlineTokenNode = ComposerMentionNode | ComposerTerminalContextNode;
+type ComposerAtomicNode = ComposerInlineTokenNode | ComposerQuoteBlockNode;
 
 function isComposerInlineTokenNode(candidate: unknown): candidate is ComposerInlineTokenNode {
   return (
     candidate instanceof ComposerMentionNode || candidate instanceof ComposerTerminalContextNode
   );
+}
+
+function isComposerAtomicNode(candidate: unknown): candidate is ComposerAtomicNode {
+  return isComposerInlineTokenNode(candidate) || candidate instanceof ComposerQuoteBlockNode;
 }
 
 function resolvedThemeFromDocument(): "light" | "dark" {
@@ -288,32 +389,29 @@ function clampExpandedCursor(value: string, cursor: number): number {
   return Math.max(0, Math.min(value.length, Math.floor(cursor)));
 }
 
-function getComposerInlineTokenTextLength(_node: ComposerInlineTokenNode): 1 {
-  return 1;
+function getComposerAtomicNodeTextLength(node: ComposerAtomicNode): number {
+  return node instanceof ComposerQuoteBlockNode ? node.getTextContentSize() : 1;
 }
 
-function getComposerInlineTokenExpandedTextLength(node: ComposerInlineTokenNode): number {
+function getComposerAtomicNodeExpandedTextLength(node: ComposerAtomicNode): number {
   return node.getTextContentSize();
 }
 
-function getAbsoluteOffsetForInlineTokenPoint(
-  node: ComposerInlineTokenNode,
+function getAbsoluteOffsetForAtomicNodePoint(
+  node: ComposerAtomicNode,
   absoluteOffset: number,
   pointOffset: number,
+  mode: "collapsed" | "expanded",
 ): number {
-  return absoluteOffset + (pointOffset > 0 ? getComposerInlineTokenTextLength(node) : 0);
+  const tokenLength =
+    mode === "collapsed"
+      ? getComposerAtomicNodeTextLength(node)
+      : getComposerAtomicNodeExpandedTextLength(node);
+  return absoluteOffset + (pointOffset > 0 ? tokenLength : 0);
 }
 
-function getExpandedAbsoluteOffsetForInlineTokenPoint(
-  node: ComposerInlineTokenNode,
-  absoluteOffset: number,
-  pointOffset: number,
-): number {
-  return absoluteOffset + (pointOffset > 0 ? getComposerInlineTokenExpandedTextLength(node) : 0);
-}
-
-function findSelectionPointForInlineToken(
-  node: ComposerInlineTokenNode,
+function findSelectionPointForAtomicNode(
+  node: ComposerAtomicNode,
   remainingRef: { value: number },
 ): { key: string; offset: number; type: "element" } | null {
   const parent = node.getParent();
@@ -326,20 +424,21 @@ function findSelectionPointForInlineToken(
       type: "element",
     };
   }
-  if (remainingRef.value === getComposerInlineTokenTextLength(node)) {
+  const tokenLength = getComposerAtomicNodeTextLength(node);
+  if (remainingRef.value <= tokenLength) {
     return {
       key: parent.getKey(),
       offset: index + 1,
       type: "element",
     };
   }
-  remainingRef.value -= getComposerInlineTokenTextLength(node);
+  remainingRef.value -= tokenLength;
   return null;
 }
 
 function getComposerNodeTextLength(node: LexicalNode): number {
-  if (isComposerInlineTokenNode(node)) {
-    return getComposerInlineTokenTextLength(node);
+  if (isComposerAtomicNode(node)) {
+    return getComposerAtomicNodeTextLength(node);
   }
   if ($isTextNode(node)) {
     return node.getTextContentSize();
@@ -354,8 +453,8 @@ function getComposerNodeTextLength(node: LexicalNode): number {
 }
 
 function getComposerNodeExpandedTextLength(node: LexicalNode): number {
-  if (isComposerInlineTokenNode(node)) {
-    return getComposerInlineTokenExpandedTextLength(node);
+  if (isComposerAtomicNode(node)) {
+    return getComposerAtomicNodeExpandedTextLength(node);
   }
   if ($isTextNode(node)) {
     return node.getTextContentSize();
@@ -369,6 +468,25 @@ function getComposerNodeExpandedTextLength(node: LexicalNode): number {
       .reduce((total, child) => total + getComposerNodeExpandedTextLength(child), 0);
   }
   return 0;
+}
+
+function getComposerNodeTextContent(node: LexicalNode): string {
+  if (isComposerAtomicNode(node)) {
+    return node.getTextContent();
+  }
+  if ($isTextNode(node)) {
+    return node.getTextContent();
+  }
+  if ($isLineBreakNode(node)) {
+    return "\n";
+  }
+  if ($isElementNode(node)) {
+    return node
+      .getChildren()
+      .map((child) => getComposerNodeTextContent(child))
+      .join("");
+  }
+  return "";
 }
 
 function getAbsoluteOffsetForPoint(node: LexicalNode, pointOffset: number): number {
@@ -390,14 +508,12 @@ function getAbsoluteOffsetForPoint(node: LexicalNode, pointOffset: number): numb
     current = nextParent;
   }
 
-  if ($isTextNode(node)) {
-    if (node instanceof ComposerMentionNode) {
-      return getAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
-    }
-    return offset + Math.min(pointOffset, node.getTextContentSize());
+  if (isComposerAtomicNode(node)) {
+    return getAbsoluteOffsetForAtomicNodePoint(node, offset, pointOffset, "collapsed");
   }
-  if (node instanceof ComposerTerminalContextNode) {
-    return getAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
+
+  if ($isTextNode(node)) {
+    return offset + Math.min(pointOffset, node.getTextContentSize());
   }
 
   if ($isLineBreakNode(node)) {
@@ -437,14 +553,12 @@ function getExpandedAbsoluteOffsetForPoint(node: LexicalNode, pointOffset: numbe
     current = nextParent;
   }
 
-  if ($isTextNode(node)) {
-    if (node instanceof ComposerMentionNode) {
-      return getExpandedAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
-    }
-    return offset + Math.min(pointOffset, node.getTextContentSize());
+  if (isComposerAtomicNode(node)) {
+    return getAbsoluteOffsetForAtomicNodePoint(node, offset, pointOffset, "expanded");
   }
-  if (node instanceof ComposerTerminalContextNode) {
-    return getExpandedAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
+
+  if ($isTextNode(node)) {
+    return offset + Math.min(pointOffset, node.getTextContentSize());
   }
 
   if ($isLineBreakNode(node)) {
@@ -469,11 +583,8 @@ function findSelectionPointAtOffset(
   node: LexicalNode,
   remainingRef: { value: number },
 ): { key: string; offset: number; type: "text" | "element" } | null {
-  if (node instanceof ComposerMentionNode) {
-    return findSelectionPointForInlineToken(node, remainingRef);
-  }
-  if (node instanceof ComposerTerminalContextNode) {
-    return findSelectionPointForInlineToken(node, remainingRef);
+  if (isComposerAtomicNode(node)) {
+    return findSelectionPointForAtomicNode(node, remainingRef);
   }
 
   if ($isTextNode(node)) {
@@ -571,7 +682,7 @@ function $readExpandedSelectionOffsetFromEditorState(fallback: number): number {
   }
   const anchorNode = selection.anchor.getNode();
   const offset = getExpandedAbsoluteOffsetForPoint(anchorNode, selection.anchor.offset);
-  const expandedLength = $getRoot().getTextContent().length;
+  const expandedLength = getComposerNodeTextContent($getRoot()).length;
   return Math.max(0, Math.min(offset, expandedLength));
 }
 
@@ -588,17 +699,32 @@ function $appendTextWithLineBreaks(parent: ElementNode, text: string): void {
   }
 }
 
+function $getOrCreateComposerParagraph(): ElementNode {
+  const root = $getRoot();
+  const lastChild = root.getLastChild();
+  if ($isElementNode(lastChild) && lastChild.getType() === "paragraph") {
+    return lastChild;
+  }
+  const paragraph = $createParagraphNode();
+  root.append(paragraph);
+  return paragraph;
+}
+
 function $setComposerEditorPrompt(
   prompt: string,
   terminalContexts: ReadonlyArray<TerminalContextDraft>,
 ): void {
   const root = $getRoot();
   root.clear();
-  const paragraph = $createParagraphNode();
-  root.append(paragraph);
 
   const segments = splitPromptIntoComposerSegments(prompt, terminalContexts);
   for (const segment of segments) {
+    if (segment.type === "quote-block") {
+      root.append($createComposerQuoteBlockNode(segment.text));
+      continue;
+    }
+
+    const paragraph = $getOrCreateComposerParagraph();
     if (segment.type === "mention") {
       paragraph.append($createComposerMentionNode(segment.path));
       continue;
@@ -610,6 +736,11 @@ function $setComposerEditorPrompt(
       continue;
     }
     $appendTextWithLineBreaks(paragraph, segment.text);
+  }
+
+  const lastChild = root.getLastChild();
+  if (!$isElementNode(lastChild) || lastChild.getType() !== "paragraph") {
+    root.append($createParagraphNode());
   }
 }
 
@@ -730,7 +861,7 @@ function ComposerInlineTokenArrowPlugin() {
           if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
           const currentOffset = $readSelectionOffsetFromEditorState(0);
           if (currentOffset <= 0) return;
-          const promptValue = $getRoot().getTextContent();
+          const promptValue = getComposerNodeTextContent($getRoot());
           if (!isCollapsedCursorAdjacentToInlineToken(promptValue, currentOffset, "left")) {
             return;
           }
@@ -757,7 +888,7 @@ function ComposerInlineTokenArrowPlugin() {
           const currentOffset = $readSelectionOffsetFromEditorState(0);
           const composerLength = $getComposerRootLength();
           if (currentOffset >= composerLength) return;
-          const promptValue = $getRoot().getTextContent();
+          const promptValue = getComposerNodeTextContent($getRoot());
           if (!isCollapsedCursorAdjacentToInlineToken(promptValue, currentOffset, "right")) {
             return;
           }
@@ -783,7 +914,7 @@ function ComposerInlineTokenArrowPlugin() {
   return null;
 }
 
-function ComposerInlineTokenSelectionNormalizePlugin() {
+function ComposerAtomicSelectionNormalizePlugin() {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
@@ -791,12 +922,22 @@ function ComposerInlineTokenSelectionNormalizePlugin() {
       let afterOffset: number | null = null;
       editorState.read(() => {
         const selection = $getSelection();
-        if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
+        if ($isNodeSelection(selection)) {
+          const nodes = selection.getNodes();
+          if (nodes.length !== 1 || !isComposerAtomicNode(nodes[0])) {
+            return;
+          }
+          afterOffset = getAbsoluteOffsetForPoint(nodes[0], 1);
+          return;
+        }
+        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+          return;
+        }
         const anchorNode = selection.anchor.getNode();
-        if (!isComposerInlineTokenNode(anchorNode)) return;
-        if (selection.anchor.offset === 0) return;
-        const beforeOffset = getAbsoluteOffsetForPoint(anchorNode, 0);
-        afterOffset = beforeOffset + 1;
+        if (!isComposerAtomicNode(anchorNode) || selection.anchor.offset === 0) {
+          return;
+        }
+        afterOffset = getAbsoluteOffsetForPoint(anchorNode, 1);
       });
       if (afterOffset !== null) {
         queueMicrotask(() => {
@@ -816,63 +957,89 @@ function ComposerInlineTokenBackspacePlugin() {
   const { onRemoveTerminalContext } = useContext(ComposerTerminalContextActionsContext);
 
   useEffect(() => {
-    return editor.registerCommand(
-      KEY_BACKSPACE_COMMAND,
-      (event) => {
-        const selection = $getSelection();
-        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+    const handleRemoval = (event: KeyboardEvent | null): boolean => {
+      const selection = $getSelection();
+      if ($isNodeSelection(selection)) {
+        const nodes = selection.getNodes();
+        if (nodes.length !== 1) {
           return false;
         }
-
-        const anchorNode = selection.anchor.getNode();
-        const selectionOffset = $readSelectionOffsetFromEditorState(0);
-        const removeInlineTokenNode = (candidate: unknown): boolean => {
-          if (!isComposerInlineTokenNode(candidate)) {
-            return false;
-          }
-          const tokenStart = getAbsoluteOffsetForPoint(candidate, 0);
-          candidate.remove();
-          if (candidate instanceof ComposerTerminalContextNode) {
-            onRemoveTerminalContext(candidate.__context.id);
-            $setSelectionAtComposerOffset(selectionOffset);
-          } else {
-            $setSelectionAtComposerOffset(tokenStart);
-          }
-          event?.preventDefault();
-          return true;
-        };
-        if (removeInlineTokenNode(anchorNode)) {
-          return true;
-        }
-
-        if ($isTextNode(anchorNode)) {
-          if (selection.anchor.offset > 0) {
-            return false;
-          }
-          if (removeInlineTokenNode(anchorNode.getPreviousSibling())) {
-            return true;
-          }
-          const parent = anchorNode.getParent();
-          if ($isElementNode(parent)) {
-            const index = anchorNode.getIndexWithinParent();
-            if (index > 0 && removeInlineTokenNode(parent.getChildAtIndex(index - 1))) {
-              return true;
-            }
-          }
+        const selectedNode = nodes[0];
+        if (!isComposerAtomicNode(selectedNode)) {
           return false;
         }
-
-        if ($isElementNode(anchorNode)) {
-          const childIndex = selection.anchor.offset - 1;
-          if (childIndex >= 0 && removeInlineTokenNode(anchorNode.getChildAtIndex(childIndex))) {
-            return true;
-          }
+        const tokenStart = getAbsoluteOffsetForPoint(selectedNode, 0);
+        selectedNode.remove();
+        if (selectedNode instanceof ComposerTerminalContextNode) {
+          onRemoveTerminalContext(selectedNode.__context.id);
+          $setSelectionAtComposerOffset(tokenStart);
+        } else {
+          $setSelectionAtComposerOffset(tokenStart);
         }
+        event?.preventDefault();
+        return true;
+      }
 
+      if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
         return false;
-      },
+      }
+
+      const anchorNode = selection.anchor.getNode();
+      const selectionOffset = $readSelectionOffsetFromEditorState(0);
+      const removeInlineTokenNode = (candidate: unknown): boolean => {
+        if (!isComposerAtomicNode(candidate)) {
+          return false;
+        }
+        const tokenStart = getAbsoluteOffsetForPoint(candidate, 0);
+        candidate.remove();
+        if (candidate instanceof ComposerTerminalContextNode) {
+          onRemoveTerminalContext(candidate.__context.id);
+          $setSelectionAtComposerOffset(selectionOffset);
+        } else {
+          $setSelectionAtComposerOffset(tokenStart);
+        }
+        event?.preventDefault();
+        return true;
+      };
+      if (removeInlineTokenNode(anchorNode)) {
+        return true;
+      }
+
+      if ($isTextNode(anchorNode)) {
+        if (selection.anchor.offset > 0) {
+          return false;
+        }
+        if (removeInlineTokenNode(anchorNode.getPreviousSibling())) {
+          return true;
+        }
+        const parent = anchorNode.getParent();
+        if ($isElementNode(parent)) {
+          const index = anchorNode.getIndexWithinParent();
+          if (index > 0 && removeInlineTokenNode(parent.getChildAtIndex(index - 1))) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      if ($isElementNode(anchorNode)) {
+        const childIndex = selection.anchor.offset - 1;
+        if (childIndex >= 0 && removeInlineTokenNode(anchorNode.getChildAtIndex(childIndex))) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    const unregisterBackspace = editor.registerCommand(
+      KEY_BACKSPACE_COMMAND,
+      handleRemoval,
       COMMAND_PRIORITY_HIGH,
     );
+    return () => {
+      unregisterBackspace();
+    };
   }, [editor, onRemoveTerminalContext]);
 
   return null;
@@ -991,7 +1158,7 @@ function ComposerPromptEditorInner({
   } => {
     let snapshot = snapshotRef.current;
     editor.getEditorState().read(() => {
-      const nextValue = $getRoot().getTextContent();
+      const nextValue = getComposerNodeTextContent($getRoot());
       const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
       const nextCursor = clampCollapsedComposerCursor(
         nextValue,
@@ -1039,7 +1206,7 @@ function ComposerPromptEditorInner({
 
   const handleEditorChange = useCallback((editorState: EditorState) => {
     editorState.read(() => {
-      const nextValue = $getRoot().getTextContent();
+      const nextValue = getComposerNodeTextContent($getRoot());
       const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
       const nextCursor = clampCollapsedComposerCursor(
         nextValue,
@@ -1114,7 +1281,7 @@ function ComposerPromptEditorInner({
         <OnChangePlugin onChange={handleEditorChange} />
         <ComposerCommandKeyPlugin {...(onCommandKeyDown ? { onCommandKeyDown } : {})} />
         <ComposerInlineTokenArrowPlugin />
-        <ComposerInlineTokenSelectionNormalizePlugin />
+        <ComposerAtomicSelectionNormalizePlugin />
         <ComposerInlineTokenBackspacePlugin />
         <HistoryPlugin />
       </div>
@@ -1146,7 +1313,7 @@ export const ComposerPromptEditor = forwardRef<
     () => ({
       namespace: "t3tools-composer-editor",
       editable: true,
-      nodes: [ComposerMentionNode, ComposerTerminalContextNode],
+      nodes: [ComposerMentionNode, ComposerTerminalContextNode, ComposerQuoteBlockNode],
       editorState: () => {
         $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
       },

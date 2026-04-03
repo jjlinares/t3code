@@ -28,6 +28,7 @@ import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { formatQuotedPromptInsertion } from "~/lib/chatQuote";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
@@ -3514,6 +3515,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
   }, [readComposerSnapshot]);
 
+  const onQuoteAssistantSelection = useCallback(
+    (selectedText: string) => {
+      const snapshot = readComposerSnapshot();
+      const replacement = formatQuotedPromptInsertion({
+        selectedText,
+        currentPrompt: snapshot.value,
+        cursor: snapshot.cursor,
+      });
+      if (replacement.length === 0) {
+        return;
+      }
+      applyPromptReplacement(snapshot.cursor, snapshot.cursor, replacement);
+    },
+    [applyPromptReplacement, readComposerSnapshot],
+  );
+
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
       if (composerSelectLockRef.current) return;
@@ -3802,6 +3819,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             {/* Messages */}
             <div
               ref={setMessagesScrollContainerRef}
+              data-chat-scroll-container="true"
               className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4"
               onScroll={onMessagesScroll}
               onClickCapture={onMessagesClickCapture}
@@ -3837,6 +3855,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeProject?.cwd ?? undefined}
+                onQuoteAssistantText={onQuoteAssistantSelection}
+                quoteComposerDisabled={isComposerApprovalState}
               />
             </div>
 

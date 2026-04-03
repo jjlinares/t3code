@@ -1,4 +1,7 @@
-import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
+import {
+  splitPromptIntoComposerSegments,
+  type ComposerPromptSegment,
+} from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "slash-model";
@@ -12,9 +15,8 @@ export interface ComposerTrigger {
 }
 
 const SLASH_COMMANDS: readonly ComposerSlashCommand[] = ["model", "plan", "default"];
-const isInlineTokenSegment = (
-  segment: { type: "text"; text: string } | { type: "mention" } | { type: "terminal-context" },
-): boolean => segment.type !== "text";
+const isInlineTokenSegment = (segment: ComposerPromptSegment): boolean =>
+  segment.type === "mention" || segment.type === "terminal-context";
 
 function clampCursor(text: string, cursor: number): number {
   if (!Number.isFinite(cursor)) return text.length;
@@ -79,19 +81,15 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
   return expandedCursor;
 }
 
-function collapsedSegmentLength(
-  segment: { type: "text"; text: string } | { type: "mention" } | { type: "terminal-context" },
-): number {
-  if (segment.type === "text") {
+function collapsedSegmentLength(segment: ComposerPromptSegment): number {
+  if (segment.type === "text" || segment.type === "quote-block") {
     return segment.text.length;
   }
   return 1;
 }
 
 function clampCollapsedComposerCursorForSegments(
-  segments: ReadonlyArray<
-    { type: "text"; text: string } | { type: "mention" } | { type: "terminal-context" }
-  >,
+  segments: ReadonlyArray<ComposerPromptSegment>,
   cursorInput: number,
 ): number {
   const collapsedLength = segments.reduce(

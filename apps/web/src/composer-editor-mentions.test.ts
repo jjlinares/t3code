@@ -38,4 +38,48 @@ describe("splitPromptIntoComposerSegments", () => {
       { type: "text", text: " please" },
     ]);
   });
+
+  it("keeps standalone quote tag blocks as dedicated segments", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        [
+          "Explain this",
+          "",
+          "<quote>",
+          "first line",
+          "second line",
+          "</quote>",
+          "",
+          "Follow-up",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      { type: "text", text: "Explain this" },
+      { type: "quote-block", text: "\n\n<quote>\nfirst line\nsecond line\n</quote>\n\n" },
+      { type: "text", text: "Follow-up" },
+    ]);
+  });
+
+  it("does not tokenize mentions inside quote blocks", () => {
+    expect(
+      splitPromptIntoComposerSegments("<quote>\ninspect @AGENTS.md\nthen summarize\n</quote>"),
+    ).toEqual([
+      { type: "quote-block", text: "<quote>\ninspect @AGENTS.md\nthen summarize\n</quote>" },
+    ]);
+  });
+
+  it("preserves CRLF quote blocks without truncating closing tags", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        "before\r\n\r\n<quote>\r\ninspect @AGENTS.md\r\nthen summarize\r\n</quote>\r\n\r\nafter",
+      ),
+    ).toEqual([
+      { type: "text", text: "before" },
+      {
+        type: "quote-block",
+        text: "\r\n\r\n<quote>\r\ninspect @AGENTS.md\r\nthen summarize\r\n</quote>\r\n\r\n",
+      },
+      { type: "text", text: "after" },
+    ]);
+  });
 });
