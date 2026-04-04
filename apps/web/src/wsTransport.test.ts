@@ -94,6 +94,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       location: {
+        href: "http://localhost:3020/",
         origin: "http://localhost:3020",
         hostname: "localhost",
         port: "3020",
@@ -123,8 +124,28 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("preserves page query params when falling back to the current page url", async () => {
+    Object.assign(window.location, {
+      href: "http://localhost:3020/?token=secret-token",
+      origin: "http://localhost:3020",
+      hostname: "localhost",
+      port: "3020",
+      protocol: "http:",
+    });
+
+    const transport = new WsTransport();
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    expect(getSocket().url).toBe("ws://localhost:3020/ws?token=secret-token");
+    await transport.dispose();
+  });
+
   it("uses wss when falling back to an https page origin", async () => {
     Object.assign(window.location, {
+      href: "https://app.example.com/",
       origin: "https://app.example.com",
       hostname: "app.example.com",
       port: "",

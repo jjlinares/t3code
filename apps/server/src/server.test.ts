@@ -27,6 +27,7 @@ import type { ServerConfigShape } from "./config.ts";
 import { deriveServerPaths, ServerConfig } from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
 import { resolveAttachmentRelativePath } from "./attachmentPaths.ts";
+import { AUTH_SESSION_COOKIE_NAME, AuthSessionServiceLive } from "./auth.ts";
 import {
   CheckpointDiffQuery,
   type CheckpointDiffQueryShape,
@@ -264,6 +265,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.serverRuntimeStartup,
         }),
       ),
+      Layer.provideMerge(AuthSessionServiceLive),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provide(layerConfig),
     );
@@ -498,6 +500,43 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assertTrue(result._tag === "Failure");
       assertInclude(String(result.failure), "SocketOpenError");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("exchanges a bootstrap auth token for an http-only cookie", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const url = yield* getHttpServerUrl("/api/auth/session?token=secret-token");
+      const response = yield* Effect.promise(() => fetch(url));
+
+      assert.equal(response.status, 204);
+      const setCookie = response.headers.get("set-cookie");
+      assertTrue(typeof setCookie === "string");
+      assert.include(setCookie, `${AUTH_SESSION_COOKIE_NAME}=`);
+      assert.include(setCookie, "HttpOnly");
+      assert.include(setCookie, "SameSite=Lax");
+      assert.include(setCookie, "Path=/");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects bootstrap auth exchange when the token is invalid", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const url = yield* getHttpServerUrl("/api/auth/session?token=wrong-token");
+      const response = yield* Effect.promise(() => fetch(url));
+
+      assert.equal(response.status, 401);
+      assert.equal(response.headers.get("set-cookie"), null);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

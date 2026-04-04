@@ -56,6 +56,7 @@ export const resolveServerUrl = (options?: {
     options?.url,
     window.desktopBridge?.getWsUrl(),
     import.meta.env.VITE_WS_URL,
+    window.location.href,
     window.location.origin,
   );
 

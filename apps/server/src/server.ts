@@ -1,8 +1,14 @@
 import { Effect, Layer } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 
+import { AuthSessionServiceLive } from "./auth";
 import { ServerConfig } from "./config";
-import { attachmentsRouteLayer, projectFaviconRouteLayer, staticAndDevRouteLayer } from "./http";
+import {
+  attachmentsRouteLayer,
+  authSessionRouteLayer,
+  projectFaviconRouteLayer,
+  staticAndDevRouteLayer,
+} from "./http";
 import { fixPath } from "./os-jank";
 import { websocketRpcRouteLayer } from "./ws";
 import { OpenLive } from "./open";
@@ -202,6 +208,7 @@ const RuntimeServicesLive = Layer.empty.pipe(
 
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
+  authSessionRouteLayer,
   projectFaviconRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
@@ -231,6 +238,7 @@ export const makeServerLayer = Layer.unwrap(
     return serverApplicationLayer.pipe(
       Layer.provideMerge(RuntimeServicesLive),
       Layer.provideMerge(HttpServerLive),
+      Layer.provideMerge(AuthSessionServiceLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provideMerge(PlatformServicesLive),

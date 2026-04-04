@@ -8,6 +8,7 @@ import {
   resolveAttachmentRelativePath,
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore";
+import { AuthSessionService, buildAuthSessionCookie } from "./auth";
 import { ServerConfig } from "./config";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 
@@ -106,6 +107,37 @@ export const projectFaviconRouteLayer = HttpRouter.add(
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
       ),
     );
+  }),
+);
+
+export const authSessionRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/auth/session",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const config = yield* ServerConfig;
+    if (!config.authToken) {
+      return HttpServerResponse.empty({ status: 204 });
+    }
+
+    const token = url.value.searchParams.get("token");
+    if (token !== config.authToken) {
+      return HttpServerResponse.text("Unauthorized", { status: 401 });
+    }
+
+    const authSessions = yield* AuthSessionService;
+    const sessionId = yield* authSessions.createSession;
+    return HttpServerResponse.empty({
+      status: 204,
+      headers: {
+        "Set-Cookie": buildAuthSessionCookie(sessionId),
+      },
+    });
   }),
 );
 

@@ -19,6 +19,7 @@ import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
+import { isRequestAuthorized } from "./auth";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
@@ -470,8 +471,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           if (Option.isNone(url)) {
             return HttpServerResponse.text("Invalid WebSocket URL", { status: 400 });
           }
-          const token = url.value.searchParams.get("token");
-          if (token !== config.authToken) {
+          const isAuthorized = yield* isRequestAuthorized(request);
+          if (!isAuthorized) {
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }
         }
