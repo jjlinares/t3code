@@ -301,6 +301,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.gitStatus, gitManager.status(input), {
           "rpc.aggregate": "git",
         }),
+      [WS_METHODS.gitWorkspaceDiff]: (input) =>
+        observeRpcEffect(WS_METHODS.gitWorkspaceDiff, git.readWorkspaceDiff(input), {
+          "rpc.aggregate": "git",
+        }),
       [WS_METHODS.gitPull]: (input) =>
         observeRpcEffect(WS_METHODS.gitPull, git.pullCurrentBranch(input.cwd), {
           "rpc.aggregate": "git",

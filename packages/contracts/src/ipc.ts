@@ -15,6 +15,8 @@ import type {
   GitResolvePullRequestResult,
   GitStatusInput,
   GitStatusResult,
+  GitWorkspaceDiffInput,
+  GitWorkspaceDiffResult,
 } from "./git";
 import type {
   ProjectSearchEntriesInput,
@@ -158,6 +160,7 @@ export interface NativeApi {
     // Stacked action API
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;
+    workspaceDiff: (input: GitWorkspaceDiffInput) => Promise<GitWorkspaceDiffResult>;
   };
   contextMenu: {
     show: <T extends string>(

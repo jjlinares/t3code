@@ -41,6 +41,7 @@ import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
 const OUTPUT_TRUNCATED_MARKER = "\n\n[truncated]";
+const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES = 49_000;
 const RANGE_COMMIT_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
@@ -118,6 +119,12 @@ function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
   }
 
   return parts.filter((value) => value.length > 0);
+}
+
+function appendPatchSegment(base: string, next: string): string {
+  if (base.length === 0) return next;
+  if (next.length === 0) return base;
+  return `${base}${base.endsWith("\n") ? "" : "\n"}${next}`;
 }
 
 function chunkPathsForGitCheckIgnore(relativePaths: readonly string[]): string[][] {
@@ -1328,6 +1335,147 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       })),
     );
 
+  const readWorkspaceDiff: GitCoreShape["readWorkspaceDiff"] = Effect.fn("readWorkspaceDiff")(
+    function* (input) {
+      const base = input.base ?? "head";
+
+      const headResult = yield* executeGit(
+        "GitCore.readWorkspaceDiff.head",
+        input.cwd,
+        ["rev-parse", "--verify", "--quiet", "HEAD"],
+        {
+          allowNonZeroExit: true,
+          timeoutMs: 5_000,
+        },
+      );
+      const headCommitSha =
+        headResult.code === 0
+          ? headResult.stdout.trim().length > 0
+            ? headResult.stdout.trim()
+            : null
+          : null;
+
+      const trackedDiffArgs =
+        base === "head" && headCommitSha
+          ? ["diff", "--patch", "--minimal", "--binary", "--no-color", "HEAD"]
+          : ["diff", "--cached", "--patch", "--minimal", "--binary", "--no-color", EMPTY_TREE_OID];
+      let diff = yield* runGitStdoutWithOptions(
+        "GitCore.readWorkspaceDiff.trackedPatch",
+        input.cwd,
+        trackedDiffArgs,
+        {
+          truncateOutputAtMaxBytes: true,
+          maxOutputBytes: DEFAULT_MAX_OUTPUT_BYTES,
+        },
+      );
+
+      const untrackedPathsResult = yield* executeGit(
+        "GitCore.readWorkspaceDiff.untrackedPaths",
+        input.cwd,
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        {
+          truncateOutputAtMaxBytes: true,
+          maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+        },
+      );
+      const untrackedPaths = splitNullSeparatedPaths(
+        untrackedPathsResult.stdout,
+        untrackedPathsResult.stdoutTruncated,
+      );
+
+      if (untrackedPaths.length > 0) {
+        const untrackedDiff = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const emptyFilePath = yield* fileSystem.makeTempFileScoped({
+              prefix: "t3code-empty-diff-",
+            });
+
+            const patches = yield* Effect.forEach(
+              untrackedPaths,
+              (relativePath) =>
+                executeGit(
+                  "GitCore.readWorkspaceDiff.untrackedPatch",
+                  input.cwd,
+                  [
+                    "diff",
+                    "--no-index",
+                    "--patch",
+                    "--minimal",
+                    "--binary",
+                    "--no-color",
+                    "--src-prefix=a/",
+                    "--dst-prefix=b/",
+                    "--",
+                    emptyFilePath,
+                    relativePath,
+                  ],
+                  {
+                    allowNonZeroExit: true,
+                    truncateOutputAtMaxBytes: true,
+                    maxOutputBytes: DEFAULT_MAX_OUTPUT_BYTES,
+                  },
+                ).pipe(
+                  Effect.flatMap((result) => {
+                    if (result.code === 0 || result.code === 1) {
+                      return Effect.succeed(
+                        result.stdoutTruncated
+                          ? `${result.stdout}${OUTPUT_TRUNCATED_MARKER}`
+                          : result.stdout,
+                      );
+                    }
+
+                    const stderr = result.stderr.trim();
+                    return Effect.fail(
+                      createGitCommandError(
+                        "GitCore.readWorkspaceDiff.untrackedPatch",
+                        input.cwd,
+                        [
+                          "diff",
+                          "--no-index",
+                          "--patch",
+                          "--minimal",
+                          "--binary",
+                          "--no-color",
+                          "--src-prefix=a/",
+                          "--dst-prefix=b/",
+                          "--",
+                          emptyFilePath,
+                          relativePath,
+                        ],
+                        stderr || "git diff --no-index failed",
+                      ),
+                    );
+                  }),
+                ),
+              { concurrency: 4 },
+            );
+
+            return patches.reduce(appendPatchSegment, "");
+          }),
+        ).pipe(
+          Effect.mapError((cause) =>
+            Schema.is(GitCommandError)(cause)
+              ? cause
+              : createGitCommandError(
+                  "GitCore.readWorkspaceDiff.untrackedPatch",
+                  input.cwd,
+                  ["diff", "--no-index"],
+                  "Failed to prepare untracked-file diff.",
+                  cause,
+                ),
+          ),
+        );
+        diff = appendPatchSegment(diff, untrackedDiff);
+      }
+
+      return {
+        base,
+        baseCommitSha: headCommitSha,
+        diff,
+      };
+    },
+  );
+
   const prepareCommitContext: GitCoreShape["prepareCommitContext"] = Effect.fn(
     "prepareCommitContext",
   )(function* (cwd, filePaths) {
@@ -2105,6 +2253,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   return {
     execute,
     status,
+    readWorkspaceDiff,
     statusDetails,
     prepareCommitContext,
     commit,

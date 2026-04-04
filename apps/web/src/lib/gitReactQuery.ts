@@ -17,6 +17,8 @@ const GIT_BRANCHES_PAGE_SIZE = 100;
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (cwd: string | null) => ["git", "status", cwd] as const,
+  workspaceDiff: (cwd: string | null, base: "head" = "head") =>
+    ["git", "workspaceDiff", cwd, base] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
   branchSearch: (cwd: string | null, query: string) =>
     ["git", "branches", cwd, "search", query] as const,
@@ -36,6 +38,7 @@ export function invalidateGitQueries(queryClient: QueryClient, input?: { cwd?: s
   if (cwd !== null) {
     return Promise.all([
       queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) }),
+      queryClient.invalidateQueries({ queryKey: gitQueryKeys.workspaceDiff(cwd) }),
       queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(cwd) }),
     ]);
   }
@@ -60,6 +63,28 @@ export function gitStatusQueryOptions(cwd: string | null) {
       return api.git.status({ cwd });
     },
     enabled: cwd !== null,
+    staleTime: GIT_STATUS_STALE_TIME_MS,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+    refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
+  });
+}
+
+export function gitWorkspaceDiffQueryOptions(input: {
+  cwd: string | null;
+  base?: "head";
+  enabled?: boolean;
+}) {
+  const base = input.base ?? "head";
+
+  return queryOptions({
+    queryKey: gitQueryKeys.workspaceDiff(input.cwd, base),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Git diff is unavailable.");
+      return api.git.workspaceDiff({ cwd: input.cwd, base });
+    },
+    enabled: input.cwd !== null && (input.enabled ?? true),
     staleTime: GIT_STATUS_STALE_TIME_MS,
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",

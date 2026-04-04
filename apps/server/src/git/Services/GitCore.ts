@@ -20,6 +20,8 @@ import type {
   GitRemoveWorktreeInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorkspaceDiffInput,
+  GitWorkspaceDiffResult,
 } from "@t3tools/contracts";
 
 import type { GitCommandError } from "@t3tools/contracts";
@@ -150,6 +152,13 @@ export interface GitCoreShape {
    * Read Git status for a repository.
    */
   readonly status: (input: GitStatusInput) => Effect.Effect<GitStatusResult, GitCommandError>;
+
+  /**
+   * Read working tree patch diff against the requested repository baseline.
+   */
+  readonly readWorkspaceDiff: (
+    input: GitWorkspaceDiffInput,
+  ) => Effect.Effect<GitWorkspaceDiffResult, GitCommandError>;
 
   /**
    * Read detailed working tree / branch status for a repository.

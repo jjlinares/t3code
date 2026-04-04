@@ -102,6 +102,15 @@ export const GitStatusInput = Schema.Struct({
 });
 export type GitStatusInput = typeof GitStatusInput.Type;
 
+export const GitWorkspaceDiffBase = Schema.Literal("head");
+export type GitWorkspaceDiffBase = typeof GitWorkspaceDiffBase.Type;
+
+export const GitWorkspaceDiffInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  base: Schema.optional(GitWorkspaceDiffBase),
+});
+export type GitWorkspaceDiffInput = typeof GitWorkspaceDiffInput.Type;
+
 export const GitPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
@@ -208,6 +217,13 @@ export const GitStatusResult = Schema.Struct({
   pr: Schema.NullOr(GitStatusPr),
 });
 export type GitStatusResult = typeof GitStatusResult.Type;
+
+export const GitWorkspaceDiffResult = Schema.Struct({
+  base: GitWorkspaceDiffBase,
+  baseCommitSha: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  diff: Schema.String,
+});
+export type GitWorkspaceDiffResult = typeof GitWorkspaceDiffResult.Type;
 
 export const GitListBranchesResult = Schema.Struct({
   branches: Schema.Array(GitBranch),

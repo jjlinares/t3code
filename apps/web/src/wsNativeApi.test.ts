@@ -55,6 +55,7 @@ const rpcClientMock = {
   git: {
     pull: vi.fn(),
     status: vi.fn(),
+    workspaceDiff: vi.fn(),
     runStackedAction: vi.fn(),
     listBranches: vi.fn(),
     createWorktree: vi.fn(),
@@ -296,6 +297,26 @@ describe("wsNativeApi", () => {
     expect(rpcClientMock.orchestration.getFullThreadDiff).toHaveBeenCalledWith({
       threadId: "thread-1",
       toTurnCount: 1,
+    });
+  });
+
+  it("forwards git workspace diff requests to the git RPC", async () => {
+    rpcClientMock.git.workspaceDiff.mockResolvedValue({
+      base: "head",
+      baseCommitSha: "abc1234",
+      diff: "patch",
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.git.workspaceDiff({
+      cwd: "/tmp/project",
+      base: "head",
+    });
+
+    expect(rpcClientMock.git.workspaceDiff).toHaveBeenCalledWith({
+      cwd: "/tmp/project",
+      base: "head",
     });
   });
 

@@ -39,9 +39,24 @@ describe("parseDiffRouteSearch", () => {
     });
   });
 
+  it("parses last-commit source and keeps file selection without a turn", () => {
+    const parsed = parseDiffRouteSearch({
+      diff: "1",
+      diffSource: "last-commit",
+      diffFilePath: "src/app.ts",
+    });
+
+    expect(parsed).toEqual({
+      diff: "1",
+      diffSource: "last-commit",
+      diffFilePath: "src/app.ts",
+    });
+  });
+
   it("drops turn and file values when diff is closed", () => {
     const parsed = parseDiffRouteSearch({
       diff: "0",
+      diffSource: "last-commit",
       diffTurnId: "turn-1",
       diffFilePath: "src/app.ts",
     });
@@ -57,6 +72,19 @@ describe("parseDiffRouteSearch", () => {
 
     expect(parsed).toEqual({
       diff: "1",
+    });
+  });
+
+  it("drops unknown diff sources", () => {
+    const parsed = parseDiffRouteSearch({
+      diff: "1",
+      diffSource: "weird",
+      diffTurnId: "turn-1",
+    });
+
+    expect(parsed).toEqual({
+      diff: "1",
+      diffTurnId: "turn-1",
     });
   });
 

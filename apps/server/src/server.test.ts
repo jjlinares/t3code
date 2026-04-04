@@ -926,6 +926,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           gitCore: {
+            readWorkspaceDiff: () =>
+              Effect.succeed({
+                base: "head",
+                baseCommitSha: "abc1234",
+                diff: "diff --git a/README.md b/README.md\n",
+              }),
             pullCurrentBranch: () =>
               Effect.succeed({
                 status: "pulled",
@@ -965,6 +971,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitStatus]({ cwd: "/tmp/repo" })),
       );
       assert.equal(status.branch, "main");
+
+      const workspaceDiff = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.gitWorkspaceDiff]({ cwd: "/tmp/repo", base: "head" }),
+        ),
+      );
+      assert.equal(workspaceDiff.base, "head");
+      assert.equal(workspaceDiff.baseCommitSha, "abc1234");
 
       const pull = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),

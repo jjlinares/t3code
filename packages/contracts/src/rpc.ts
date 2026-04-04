@@ -24,6 +24,8 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorkspaceDiffInput,
+  GitWorkspaceDiffResult,
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -84,6 +86,7 @@ export const WS_METHODS = {
   // Git methods
   gitPull: "git.pull",
   gitStatus: "git.status",
+  gitWorkspaceDiff: "git.workspaceDiff",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
   gitCreateWorktree: "git.createWorktree",
@@ -166,6 +169,12 @@ export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
   payload: GitStatusInput,
   success: GitStatusResult,
   error: GitManagerServiceError,
+});
+
+export const WsGitWorkspaceDiffRpc = Rpc.make(WS_METHODS.gitWorkspaceDiff, {
+  payload: GitWorkspaceDiffInput,
+  success: GitWorkspaceDiffResult,
+  error: GitCommandError,
 });
 
 export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
@@ -331,6 +340,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsGitStatusRpc,
+  WsGitWorkspaceDiffRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,

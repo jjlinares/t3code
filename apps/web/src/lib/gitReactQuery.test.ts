@@ -21,6 +21,7 @@ import {
   gitRunStackedActionMutationOptions,
   invalidateGitStatusQuery,
   gitStatusQueryOptions,
+  gitWorkspaceDiffQueryOptions,
   invalidateGitQueries,
 } from "./gitReactQuery";
 
@@ -85,6 +86,7 @@ describe("invalidateGitQueries", () => {
     const queryClient = new QueryClient();
 
     queryClient.setQueryData(gitQueryKeys.status("/repo/a"), { ok: "a" });
+    queryClient.setQueryData(gitQueryKeys.workspaceDiff("/repo/a"), { ok: "a-diff" });
     queryClient.setQueryData(
       gitBranchSearchInfiniteQueryOptions({
         cwd: "/repo/a",
@@ -93,6 +95,7 @@ describe("invalidateGitQueries", () => {
       BRANCH_SEARCH_RESULT,
     );
     queryClient.setQueryData(gitQueryKeys.status("/repo/b"), { ok: "b" });
+    queryClient.setQueryData(gitQueryKeys.workspaceDiff("/repo/b"), { ok: "b-diff" });
     queryClient.setQueryData(
       gitBranchSearchInfiniteQueryOptions({
         cwd: "/repo/b",
@@ -107,6 +110,10 @@ describe("invalidateGitQueries", () => {
       queryClient.getQueryState(gitStatusQueryOptions("/repo/a").queryKey)?.isInvalidated,
     ).toBe(true);
     expect(
+      queryClient.getQueryState(gitWorkspaceDiffQueryOptions({ cwd: "/repo/a" }).queryKey)
+        ?.isInvalidated,
+    ).toBe(true);
+    expect(
       queryClient.getQueryState(
         gitBranchSearchInfiniteQueryOptions({
           cwd: "/repo/a",
@@ -116,6 +123,10 @@ describe("invalidateGitQueries", () => {
     ).toBe(true);
     expect(
       queryClient.getQueryState(gitStatusQueryOptions("/repo/b").queryKey)?.isInvalidated,
+    ).toBe(false);
+    expect(
+      queryClient.getQueryState(gitWorkspaceDiffQueryOptions({ cwd: "/repo/b" }).queryKey)
+        ?.isInvalidated,
     ).toBe(false);
     expect(
       queryClient.getQueryState(

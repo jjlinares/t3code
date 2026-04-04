@@ -1988,6 +1988,38 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
+    it.effect("reads workspace diff against HEAD including untracked files", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "README.md"), "# test\nupdated\n");
+        yield* writeTextFile(path.join(tmp, "new-file.ts"), "export const value = 1;\n");
+
+        const diff = yield* core.readWorkspaceDiff({ cwd: tmp, base: "head" });
+        expect(diff.base).toBe("head");
+        expect(diff.baseCommitSha).not.toBeNull();
+        expect(diff.diff).toContain("README.md");
+        expect(diff.diff).toContain("new-file.ts");
+      }),
+    );
+
+    it.effect("reads workspace diff against initial state before first commit", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const core = yield* GitCore;
+
+        yield* core.initRepo({ cwd: tmp });
+        yield* writeTextFile(path.join(tmp, "draft.txt"), "hello\n");
+
+        const diff = yield* core.readWorkspaceDiff({ cwd: tmp, base: "head" });
+        expect(diff.base).toBe("head");
+        expect(diff.baseCommitSha).toBeNull();
+        expect(diff.diff).toContain("draft.txt");
+      }),
+    );
+
     it.effect("prepareCommitContext stages only selected files when filePaths provided", () =>
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
