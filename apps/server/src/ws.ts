@@ -19,7 +19,7 @@ import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
-import { isRequestAuthorized } from "./auth";
+import { BrowserAuth } from "./auth";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
@@ -302,6 +302,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.gitStatus, gitManager.status(input), {
           "rpc.aggregate": "git",
         }),
+      [WS_METHODS.gitWorkspaceDiff]: (input) =>
+        observeRpcEffect(WS_METHODS.gitWorkspaceDiff, git.readWorkspaceDiff(input), {
+          "rpc.aggregate": "git",
+        }),
       [WS_METHODS.gitPull]: (input) =>
         observeRpcEffect(WS_METHODS.gitPull, git.pullCurrentBranch(input.cwd), {
           "rpc.aggregate": "git",
@@ -471,7 +475,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           if (Option.isNone(url)) {
             return HttpServerResponse.text("Invalid WebSocket URL", { status: 400 });
           }
-          const isAuthorized = yield* isRequestAuthorized(request);
+          const auth = yield* BrowserAuth;
+          const isAuthorized = yield* auth.isRequestAuthorized(request);
           if (!isAuthorized) {
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }

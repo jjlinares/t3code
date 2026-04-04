@@ -38,10 +38,10 @@ describe("isWindowsPlatform", () => {
 });
 
 describe("resolveHttpServerUrl", () => {
-  it("uses the configured server origin without inheriting page query params", () => {
+  it("drops websocket auth query params when deriving http urls from the desktop bridge", () => {
     Object.assign(window, {
       desktopBridge: {
-        getWsUrl: () => "ws://localhost:3773",
+        getWsUrl: () => "ws://localhost:3773/?token=secret-token",
       },
     });
 

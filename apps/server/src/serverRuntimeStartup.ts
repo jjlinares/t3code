@@ -19,6 +19,7 @@ import {
   ServiceMap,
 } from "effect";
 
+import { buildBrowserBootstrapUrl } from "./auth";
 import { ServerConfig } from "./config";
 import { Keybindings } from "./keybindings";
 import { Open } from "./open";
@@ -239,7 +240,10 @@ const maybeOpenBrowser = Effect.gen(function* () {
     serverConfig.host && !isWildcardHost(serverConfig.host)
       ? `http://${formatHostForUrl(serverConfig.host)}:${serverConfig.port}`
       : localUrl;
-  const target = serverConfig.devUrl?.toString() ?? bindUrl;
+  const targetBase = serverConfig.devUrl?.toString() ?? bindUrl;
+  const target = serverConfig.authToken
+    ? buildBrowserBootstrapUrl(targetBase, serverConfig.authToken)
+    : targetBase;
 
   yield* openBrowser(target).pipe(
     Effect.catch(() =>

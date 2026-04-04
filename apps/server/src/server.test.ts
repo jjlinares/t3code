@@ -27,7 +27,7 @@ import type { ServerConfigShape } from "./config.ts";
 import { deriveServerPaths, ServerConfig } from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
 import { resolveAttachmentRelativePath } from "./attachmentPaths.ts";
-import { AUTH_SESSION_COOKIE_NAME, AuthSessionServiceLive } from "./auth.ts";
+import { AUTH_SESSION_COOKIE_NAME, BrowserAuthLive } from "./auth.ts";
 import {
   CheckpointDiffQuery,
   type CheckpointDiffQueryShape,
@@ -265,7 +265,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.serverRuntimeStartup,
         }),
       ),
-      Layer.provideMerge(AuthSessionServiceLive),
+      Layer.provideMerge(BrowserAuthLive),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provide(layerConfig),
     );
@@ -503,7 +503,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("exchanges a bootstrap auth token for an http-only cookie", () =>
+  it.effect("exchanges a bootstrap auth token for a signed http-only cookie", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         config: {
@@ -511,8 +511,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         },
       });
 
-      const url = yield* getHttpServerUrl("/api/auth/session?token=secret-token");
-      const response = yield* Effect.promise(() => fetch(url));
+      const url = yield* getHttpServerUrl("/api/auth/session");
+      const response = yield* Effect.promise(() =>
+        fetch(url, {
+          method: "POST",
+          body: new URLSearchParams({ token: "secret-token" }),
+        }),
+      );
 
       assert.equal(response.status, 204);
       const setCookie = response.headers.get("set-cookie");
@@ -521,6 +526,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.include(setCookie, "HttpOnly");
       assert.include(setCookie, "SameSite=Lax");
       assert.include(setCookie, "Path=/");
+      assert.include(setCookie, "Max-Age=");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -532,8 +538,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         },
       });
 
-      const url = yield* getHttpServerUrl("/api/auth/session?token=wrong-token");
-      const response = yield* Effect.promise(() => fetch(url));
+      const url = yield* getHttpServerUrl("/api/auth/session");
+      const response = yield* Effect.promise(() =>
+        fetch(url, {
+          method: "POST",
+          body: new URLSearchParams({ token: "wrong-token" }),
+        }),
+      );
 
       assert.equal(response.status, 401);
       assert.equal(response.headers.get("set-cookie"), null);
@@ -965,6 +976,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           gitCore: {
+            readWorkspaceDiff: () =>
+              Effect.succeed({
+                base: "head",
+                baseCommitSha: "abc1234",
+                diff: "diff --git a/README.md b/README.md\n",
+              }),
             pullCurrentBranch: () =>
               Effect.succeed({
                 status: "pulled",
@@ -1004,6 +1021,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitStatus]({ cwd: "/tmp/repo" })),
       );
       assert.equal(status.branch, "main");
+
+      const workspaceDiff = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.gitWorkspaceDiff]({ cwd: "/tmp/repo", base: "head" }),
+        ),
+      );
+      assert.equal(workspaceDiff.base, "head");
+      assert.equal(workspaceDiff.baseCommitSha, "abc1234");
 
       const pull = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),

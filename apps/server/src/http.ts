@@ -8,12 +8,28 @@ import {
   resolveAttachmentRelativePath,
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore";
-import { AuthSessionService, buildAuthSessionCookie } from "./auth";
+import { issueSessionCookieForRequest } from "./auth";
 import { ServerConfig } from "./config";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
+
+function getAuthSessionCorsHeaders(
+  request: HttpServerRequest.HttpServerRequest,
+  config: { readonly devUrl: URL | undefined },
+): Record<string, string> {
+  const origin = request.headers.origin;
+  if (!origin || origin !== config.devUrl?.origin) {
+    return {};
+  }
+
+  return {
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Origin": origin,
+    Vary: "Origin",
+  };
+}
 
 export const attachmentsRouteLayer = HttpRouter.add(
   "GET",
@@ -111,31 +127,35 @@ export const projectFaviconRouteLayer = HttpRouter.add(
 );
 
 export const authSessionRouteLayer = HttpRouter.add(
-  "GET",
+  "POST",
   "/api/auth/session",
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
-    if (Option.isNone(url)) {
-      return HttpServerResponse.text("Bad Request", { status: 400 });
-    }
-
     const config = yield* ServerConfig;
+    const corsHeaders = getAuthSessionCorsHeaders(request, config);
+
     if (!config.authToken) {
-      return HttpServerResponse.empty({ status: 204 });
+      return HttpServerResponse.empty({
+        status: 204,
+        headers: corsHeaders,
+      });
     }
 
-    const token = url.value.searchParams.get("token");
+    const rawBody = yield* request.text.pipe(Effect.catch(() => Effect.succeed("")));
+    const token = new URLSearchParams(rawBody).get("token")?.trim();
     if (token !== config.authToken) {
-      return HttpServerResponse.text("Unauthorized", { status: 401 });
+      return HttpServerResponse.text("Unauthorized", {
+        status: 401,
+        headers: corsHeaders,
+      });
     }
 
-    const authSessions = yield* AuthSessionService;
-    const sessionId = yield* authSessions.createSession;
+    const cookie = yield* issueSessionCookieForRequest(request);
     return HttpServerResponse.empty({
       status: 204,
       headers: {
-        "Set-Cookie": buildAuthSessionCookie(sessionId),
+        ...corsHeaders,
+        "Set-Cookie": cookie,
       },
     });
   }),

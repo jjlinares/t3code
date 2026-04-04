@@ -53,7 +53,11 @@ type ServerUrlOptions = {
   searchParams?: Record<string, string> | undefined;
 };
 
-function resolveServerUrl(rawUrl: string, options?: ServerUrlOptions): string {
+function resolveServerUrl(
+  rawUrl: string,
+  options?: ServerUrlOptions,
+  options2?: { readonly preserveSearch?: boolean },
+): string {
   const parsedUrl = new URL(rawUrl);
   if (options?.protocol) {
     parsedUrl.protocol = options.protocol;
@@ -65,6 +69,8 @@ function resolveServerUrl(rawUrl: string, options?: ServerUrlOptions): string {
   }
   if (options?.searchParams) {
     parsedUrl.search = new URLSearchParams(options.searchParams).toString();
+  } else if (!options2?.preserveSearch) {
+    parsedUrl.search = "";
   }
   return parsedUrl.toString();
 }
@@ -87,5 +93,5 @@ export const resolveWsServerUrl = (options?: ServerUrlOptions): string => {
     window.location.href,
     window.location.origin,
   );
-  return resolveServerUrl(rawUrl, options);
+  return resolveServerUrl(rawUrl, options, { preserveSearch: true });
 };

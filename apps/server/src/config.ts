@@ -19,6 +19,7 @@ export type RuntimeMode = typeof RuntimeMode.Type;
 export interface ServerDerivedPaths {
   readonly stateDir: string;
   readonly dbPath: string;
+  readonly authCookieSecretPath: string;
   readonly keybindingsConfigPath: string;
   readonly settingsPath: string;
   readonly worktreesDir: string;
@@ -72,6 +73,7 @@ export const deriveServerPaths = Effect.fn(function* (
   return {
     stateDir,
     dbPath,
+    authCookieSecretPath: join(stateDir, "auth-cookie-secret"),
     keybindingsConfigPath: join(stateDir, "keybindings.json"),
     settingsPath: join(stateDir, "settings.json"),
     worktreesDir: join(baseDir, "worktrees"),
@@ -98,6 +100,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
+      fs.makeDirectory(path.dirname(derivedPaths.authCookieSecretPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.anonymousIdPath), { recursive: true }),

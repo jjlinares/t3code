@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 
-import { AuthSessionServiceLive } from "./auth";
+import { BrowserAuthLive } from "./auth";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
@@ -238,7 +238,7 @@ export const makeServerLayer = Layer.unwrap(
     return serverApplicationLayer.pipe(
       Layer.provideMerge(RuntimeServicesLive),
       Layer.provideMerge(HttpServerLive),
-      Layer.provideMerge(AuthSessionServiceLive),
+      Layer.provideMerge(BrowserAuthLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provideMerge(PlatformServicesLive),
