@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 
-import { resolveServerUrl } from "../lib/utils";
+import { resolveWsServerUrl } from "../lib/utils";
 
 export const makeWsRpcProtocolClient = RpcClient.make(WsRpcGroup);
 
@@ -12,7 +12,7 @@ export type WsRpcProtocolClient =
   RpcClientFactory extends Effect.Effect<infer Client, any, any> ? Client : never;
 
 export function createWsRpcProtocolLayer(url?: string) {
-  const resolvedUrl = resolveServerUrl({
+  const resolvedUrl = resolveWsServerUrl({
     url,
     protocol: window.location.protocol === "https:" ? "wss" : "ws",
     pathname: "/ws",

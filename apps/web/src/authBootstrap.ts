@@ -1,4 +1,4 @@
-import { resolveServerUrl } from "./lib/utils";
+import { resolveHttpServerUrl } from "./lib/utils";
 
 const AUTH_TOKEN_QUERY_PARAM = "token";
 
@@ -24,7 +24,7 @@ export async function bootstrapServerAuth(): Promise<void> {
     return;
   }
 
-  const exchangeUrl = resolveServerUrl({
+  const exchangeUrl = resolveHttpServerUrl({
     protocol: window.location.protocol === "https:" ? "https" : "http",
     pathname: "/api/auth/session",
     searchParams: { token },
@@ -36,6 +36,7 @@ export async function bootstrapServerAuth(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Auth bootstrap failed with status ${response.status}`);
   }
-
+  // Once the cookie is issued, the URL token is no longer needed.
+  // A backend restart invalidates the cookie today, so re-auth then needs a fresh bootstrap URL.
   window.history.replaceState(window.history.state, "", removeBootstrapTokenFromUrl(pageUrl));
 }

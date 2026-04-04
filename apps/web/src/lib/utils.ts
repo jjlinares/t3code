@@ -46,20 +46,14 @@ const firstNonEmptyString = (...values: unknown[]): string => {
   throw new Error("No non-empty string provided");
 };
 
-export const resolveServerUrl = (options?: {
+type ServerUrlOptions = {
   url?: string | undefined;
   protocol?: "http" | "https" | "ws" | "wss" | undefined;
   pathname?: string | undefined;
   searchParams?: Record<string, string> | undefined;
-}): string => {
-  const rawUrl = firstNonEmptyString(
-    options?.url,
-    window.desktopBridge?.getWsUrl(),
-    import.meta.env.VITE_WS_URL,
-    window.location.href,
-    window.location.origin,
-  );
+};
 
+function resolveServerUrl(rawUrl: string, options?: ServerUrlOptions): string {
   const parsedUrl = new URL(rawUrl);
   if (options?.protocol) {
     parsedUrl.protocol = options.protocol;
@@ -73,4 +67,25 @@ export const resolveServerUrl = (options?: {
     parsedUrl.search = new URLSearchParams(options.searchParams).toString();
   }
   return parsedUrl.toString();
+}
+
+export const resolveHttpServerUrl = (options?: ServerUrlOptions): string => {
+  const rawUrl = firstNonEmptyString(
+    options?.url,
+    window.desktopBridge?.getWsUrl(),
+    import.meta.env.VITE_WS_URL,
+    window.location.origin,
+  );
+  return resolveServerUrl(rawUrl, options);
+};
+
+export const resolveWsServerUrl = (options?: ServerUrlOptions): string => {
+  const rawUrl = firstNonEmptyString(
+    options?.url,
+    window.desktopBridge?.getWsUrl(),
+    import.meta.env.VITE_WS_URL,
+    window.location.href,
+    window.location.origin,
+  );
+  return resolveServerUrl(rawUrl, options);
 };
