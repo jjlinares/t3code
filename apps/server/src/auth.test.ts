@@ -101,6 +101,30 @@ it.layer(NodeServices.layer)("browser auth", (it) => {
     }),
   );
 
+  it.effect("revokes signed cookie auth when the auth token changes", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-auth-test-" });
+      const config = yield* makeTestConfig(baseDir);
+
+      const auth = yield* makeBrowserAuth(config);
+      const setCookie = yield* auth.issueSessionCookie();
+      const rotatedAuth = yield* makeBrowserAuth({
+        ...config,
+        authToken: "rotated-token",
+      });
+      const request = HttpServerRequest.fromWeb(
+        new Request("http://localhost:3773/ws", {
+          headers: {
+            Cookie: getCookieHeaderValue(setCookie),
+          },
+        }),
+      );
+
+      assert.isFalse(yield* rotatedAuth.isRequestAuthorized(request));
+    }),
+  );
+
   it.effect("builds browser bootstrap urls with token fragments", () =>
     Effect.sync(() => {
       assert.equal(

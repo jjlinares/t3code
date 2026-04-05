@@ -31,6 +31,7 @@ afterEach(() => {
     configurable: true,
     value: originalWindow,
   });
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -60,6 +61,39 @@ describe("bootstrapServerAuth", () => {
     await bootstrapServerAuth();
 
     expect(window.history.replaceState).toHaveBeenCalledWith(window.history.state, "", "/?foo=bar");
+  });
+
+  it("retries transient bootstrap failures before succeeding", async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 })) as typeof fetch;
+
+    const bootstrap = bootstrapServerAuth();
+    await vi.advanceTimersByTimeAsync(200);
+    await bootstrap;
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(window.history.replaceState).toHaveBeenCalledWith(window.history.state, "", "/");
+  });
+
+  it("fails after exhausting transient bootstrap retries", async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 503 })) as typeof fetch;
+
+    const bootstrapResult = bootstrapServerAuth().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(200 + 500 + 1_000);
+
+    const error = await bootstrapResult;
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({
+      message: "Auth bootstrap failed with status 503",
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+    expect(window.history.replaceState).not.toHaveBeenCalled();
   });
 
   it("does nothing when the page url has no bootstrap token", async () => {

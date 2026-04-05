@@ -17,6 +17,8 @@ type AuthCookiePayload = {
   readonly v: number;
 };
 
+type CookieSigningSecret = Crypto.BinaryLike;
+
 export interface BrowserAuthShape {
   readonly issueSessionCookie: (options?: { readonly secure?: boolean }) => Effect.Effect<string>;
   readonly isRequestAuthorized: (
@@ -36,11 +38,15 @@ function decodeBase64Url(value: string): string {
   return Buffer.from(value, "base64url").toString("utf8");
 }
 
-function signCookiePayload(payloadSegment: string, secret: string): Buffer {
+function signCookiePayload(payloadSegment: string, secret: CookieSigningSecret): Buffer {
   return Crypto.createHmac("sha256", secret).update(payloadSegment).digest();
 }
 
-function buildCookieValue(secret: string, now = new Date()): string {
+function deriveCookieSigningSecret(cookieSecret: string, authToken: string): Buffer {
+  return Crypto.createHmac("sha256", cookieSecret).update(authToken).digest();
+}
+
+function buildCookieValue(secret: CookieSigningSecret, now = new Date()): string {
   const issuedAtSeconds = Math.floor(now.getTime() / 1000);
   const payload = {
     v: AUTH_COOKIE_VERSION,
@@ -52,7 +58,7 @@ function buildCookieValue(secret: string, now = new Date()): string {
   return `${payloadSegment}.${signatureSegment}`;
 }
 
-function verifyCookieValue(value: string, secret: string, now = new Date()): boolean {
+function verifyCookieValue(value: string, secret: CookieSigningSecret, now = new Date()): boolean {
   try {
     const [rawPayloadSegment, rawSignatureSegment, ...rest] = decodeURIComponent(value).split(".");
     if (!rawPayloadSegment || !rawSignatureSegment || rest.length > 0) {
@@ -140,14 +146,18 @@ export const BrowserAuthLive = Layer.effect(
   Effect.gen(function* () {
     const config = yield* ServerConfig;
     const cookieSecret = config.authToken ? yield* readOrCreateAuthCookieSecret : undefined;
+    const cookieSigningSecret =
+      config.authToken && cookieSecret
+        ? deriveCookieSigningSecret(cookieSecret, config.authToken)
+        : undefined;
 
     return {
       issueSessionCookie: (options) =>
         Effect.sync(() => {
-          if (!cookieSecret) {
+          if (!cookieSigningSecret) {
             throw new Error("Auth cookie secret unavailable");
           }
-          return buildAuthSessionCookie(buildCookieValue(cookieSecret), options);
+          return buildAuthSessionCookie(buildCookieValue(cookieSigningSecret), options);
         }),
       isRequestAuthorized: (request) =>
         Effect.sync(() => {
@@ -161,11 +171,11 @@ export const BrowserAuthLive = Layer.effect(
           }
 
           const cookieValue = request.cookies[AUTH_SESSION_COOKIE_NAME];
-          if (!cookieValue || !cookieSecret) {
+          if (!cookieValue || !cookieSigningSecret) {
             return false;
           }
 
-          return verifyCookieValue(cookieValue, cookieSecret);
+          return verifyCookieValue(cookieValue, cookieSigningSecret);
         }),
     } satisfies BrowserAuthShape;
   }),

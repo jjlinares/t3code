@@ -15,27 +15,55 @@ import { APP_DISPLAY_NAME } from "./branding";
 const history = isElectron ? createHashHistory() : createBrowserHistory();
 
 const router = getRouter(history);
+const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
 
-function renderApp() {
-  document.title = APP_DISPLAY_NAME;
-  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode>
-      <RouterProvider router={router} />
-    </React.StrictMode>,
-  );
+function renderScreen(title: string, children: React.ReactNode) {
+  document.title = title;
+  root.render(<React.StrictMode>{children}</React.StrictMode>);
 }
 
-function renderBootstrapError(error: unknown) {
-  document.title = `${APP_DISPLAY_NAME} Error`;
-  const message = error instanceof Error ? error.message : String(error);
-  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+function renderApp() {
+  renderScreen(APP_DISPLAY_NAME, <RouterProvider router={router} />);
+}
+
+function renderBootstrapPending() {
+  renderScreen(
+    `${APP_DISPLAY_NAME} Connecting`,
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
       <div className="max-w-md space-y-3 text-center">
-        <h1 className="text-xl font-semibold">Failed to connect</h1>
-        <p className="text-sm text-muted-foreground">{message}</p>
+        <h1 className="text-xl font-semibold">Connecting</h1>
+        <p className="text-sm text-muted-foreground">Restoring your browser session.</p>
       </div>
     </div>,
   );
 }
 
-void bootstrapServerAuth().then(renderApp).catch(renderBootstrapError);
+function renderBootstrapError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  renderScreen(
+    `${APP_DISPLAY_NAME} Error`,
+    <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <div className="max-w-md space-y-4 text-center">
+        <h1 className="text-xl font-semibold">Failed to connect</h1>
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-muted"
+          onClick={() => {
+            void startApp();
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    </div>,
+  );
+}
+
+async function startApp() {
+  renderBootstrapPending();
+  await bootstrapServerAuth();
+  renderApp();
+}
+
+void startApp().catch(renderBootstrapError);

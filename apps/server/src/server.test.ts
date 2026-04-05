@@ -289,6 +289,40 @@ const withWsRpcClient = <A, E, R>(
   f: (client: WsRpcClient) => Effect.Effect<A, E, R>,
 ) => makeWsRpcClient.pipe(Effect.flatMap(f), Effect.provide(wsRpcProtocolLayer(wsUrl)));
 
+function getCookieHeaderValue(setCookie: string): string {
+  const cookie = setCookie.split(";")[0];
+  if (!cookie) {
+    throw new Error("Missing cookie header value");
+  }
+  return cookie;
+}
+
+const openRawWebSocket = (wsUrl: string, headers?: Record<string, string>) =>
+  Effect.promise(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const ws = new NodeSocket.NodeWS.WebSocket(wsUrl, { headers });
+        const cleanup = () => {
+          ws.removeAllListeners();
+        };
+
+        ws.once("open", () => {
+          cleanup();
+          ws.close();
+          resolve();
+        });
+        ws.once("unexpected-response", (_request, response) => {
+          cleanup();
+          response.resume();
+          reject(new Error(`Unexpected WebSocket response: ${response.statusCode ?? "unknown"}`));
+        });
+        ws.once("error", (error) => {
+          cleanup();
+          reject(error);
+        });
+      }),
+  );
+
 const getHttpServerUrl = (pathname = "") =>
   Effect.gen(function* () {
     const server = yield* HttpServer.HttpServer;
@@ -548,6 +582,33 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 401);
       assert.equal(response.headers.get("set-cookie"), null);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("authenticates websocket upgrades with a signed bootstrap cookie", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const authUrl = yield* getHttpServerUrl("/api/auth/session");
+      const authResponse = yield* Effect.promise(() =>
+        fetch(authUrl, {
+          method: "POST",
+          body: new URLSearchParams({ token: "secret-token" }),
+        }),
+      );
+      const setCookie = authResponse.headers.get("set-cookie");
+
+      assert.equal(authResponse.status, 204);
+      assertTrue(typeof setCookie === "string");
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* openRawWebSocket(wsUrl, {
+        Cookie: getCookieHeaderValue(setCookie),
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
