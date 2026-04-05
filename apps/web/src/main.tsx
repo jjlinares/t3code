@@ -6,7 +6,7 @@ import { createHashHistory, createBrowserHistory } from "@tanstack/react-router"
 import "@xterm/xterm/css/xterm.css";
 import "./index.css";
 
-import { bootstrapServerAuth } from "./authBootstrap";
+import { bootstrapServerAuth, getBootstrapServerAuth } from "./authBootstrap";
 import { isElectron } from "./env";
 import { getRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
@@ -61,8 +61,11 @@ function renderBootstrapError(error: unknown) {
 }
 
 async function startApp() {
-  renderBootstrapPending();
-  await bootstrapServerAuth();
+  const bootstrap = getBootstrapServerAuth();
+  if (bootstrap) {
+    renderBootstrapPending();
+  }
+  await bootstrapServerAuth(bootstrap);
   renderApp();
 }
 

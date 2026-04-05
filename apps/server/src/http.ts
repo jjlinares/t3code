@@ -14,6 +14,7 @@ import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolve
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
+const AUTH_SESSION_CACHE_CONTROL = "no-store";
 
 function getAuthSessionCorsHeaders(
   request: HttpServerRequest.HttpServerRequest,
@@ -29,6 +30,33 @@ function getAuthSessionCorsHeaders(
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
   };
+}
+
+function getAuthSessionHeaders(
+  request: HttpServerRequest.HttpServerRequest,
+  config: { readonly devUrl: URL | undefined },
+): Record<string, string> {
+  return {
+    ...getAuthSessionCorsHeaders(request, config),
+    "Cache-Control": AUTH_SESSION_CACHE_CONTROL,
+  };
+}
+
+function isAllowedAuthSessionOrigin(
+  request: HttpServerRequest.HttpServerRequest,
+  config: { readonly devUrl: URL | undefined },
+): boolean {
+  const origin = request.headers.origin;
+  if (!origin) {
+    return true;
+  }
+
+  const requestUrl = HttpServerRequest.toURL(request);
+  if (Option.isNone(requestUrl)) {
+    return false;
+  }
+
+  return origin === requestUrl.value.origin || origin === config.devUrl?.origin;
 }
 
 export const attachmentsRouteLayer = HttpRouter.add(
@@ -132,12 +160,19 @@ export const authSessionRouteLayer = HttpRouter.add(
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const config = yield* ServerConfig;
-    const corsHeaders = getAuthSessionCorsHeaders(request, config);
+    const headers = getAuthSessionHeaders(request, config);
+
+    if (!isAllowedAuthSessionOrigin(request, config)) {
+      return HttpServerResponse.text("Forbidden", {
+        status: 403,
+        headers,
+      });
+    }
 
     if (!config.authToken) {
       return HttpServerResponse.empty({
         status: 204,
-        headers: corsHeaders,
+        headers,
       });
     }
 
@@ -146,7 +181,7 @@ export const authSessionRouteLayer = HttpRouter.add(
     if (token !== config.authToken) {
       return HttpServerResponse.text("Unauthorized", {
         status: 401,
-        headers: corsHeaders,
+        headers,
       });
     }
 
@@ -154,7 +189,7 @@ export const authSessionRouteLayer = HttpRouter.add(
     return HttpServerResponse.empty({
       status: 204,
       headers: {
-        ...corsHeaders,
+        ...headers,
         "Set-Cookie": cookie,
       },
     });

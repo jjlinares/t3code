@@ -554,6 +554,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(response.status, 204);
+      assert.equal(response.headers.get("cache-control"), "no-store");
       const setCookie = response.headers.get("set-cookie");
       assertTrue(typeof setCookie === "string");
       assert.include(setCookie, `${AUTH_SESSION_COOKIE_NAME}=`);
@@ -561,6 +562,31 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.include(setCookie, "SameSite=Lax");
       assert.include(setCookie, "Path=/");
       assert.include(setCookie, "Max-Age=");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects bootstrap auth exchange for disallowed origins", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const url = yield* getHttpServerUrl("/api/auth/session");
+      const response = yield* Effect.promise(() =>
+        fetch(url, {
+          method: "POST",
+          headers: {
+            Origin: "http://evil.example",
+          },
+          body: new URLSearchParams({ token: "secret-token" }),
+        }),
+      );
+
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("set-cookie"), null);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

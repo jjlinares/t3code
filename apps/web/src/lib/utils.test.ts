@@ -65,4 +65,19 @@ describe("resolveWsServerUrl", () => {
       "ws://localhost:5733/ws?token=secret-token",
     );
   });
+
+  it("does not forward page query params when falling back to the browser origin", () => {
+    Object.assign(window.location, {
+      href: "http://localhost:5733/?token=secret-token&foo=bar#token=secret-token",
+      origin: "http://localhost:5733",
+    });
+
+    assert.equal(
+      resolveWsServerUrl({
+        protocol: "ws",
+        pathname: "/ws",
+      }),
+      "ws://localhost:5733/ws",
+    );
+  });
 });

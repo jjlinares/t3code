@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { bootstrapServerAuth } from "./authBootstrap";
+import { bootstrapServerAuth, getBootstrapServerAuth } from "./authBootstrap";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
@@ -36,6 +36,19 @@ afterEach(() => {
 });
 
 describe("bootstrapServerAuth", () => {
+  it("reads bootstrap auth from the current page url", () => {
+    expect(getBootstrapServerAuth()).toMatchObject({
+      token: "secret-token",
+      nextUrl: "/",
+    });
+
+    Object.assign(window.location, {
+      href: "http://localhost:3773/",
+    });
+
+    expect(getBootstrapServerAuth()).toBeUndefined();
+  });
+
   it("exchanges the bootstrap token from the url hash and removes it from the page url", async () => {
     globalThis.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
 

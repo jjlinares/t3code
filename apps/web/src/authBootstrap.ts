@@ -50,6 +50,14 @@ function getBootstrapToken(url: URL): BootstrapTokenSource | undefined {
   return getTokenFromHash(url) ?? getTokenFromSearch(url);
 }
 
+export function getBootstrapServerAuth(): BootstrapTokenSource | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  return getBootstrapToken(new URL(window.location.href));
+}
+
 function getAuthBootstrapExchangeUrl(): string {
   return resolveHttpServerUrl({
     protocol: window.location.protocol === "https:" ? "https" : "http",
@@ -105,13 +113,7 @@ async function exchangeBootstrapToken(token: string): Promise<void> {
   }
 }
 
-export async function bootstrapServerAuth(): Promise<void> {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const pageUrl = new URL(window.location.href);
-  const bootstrap = getBootstrapToken(pageUrl);
+export async function bootstrapServerAuth(bootstrap = getBootstrapServerAuth()): Promise<void> {
   if (!bootstrap) {
     return;
   }
