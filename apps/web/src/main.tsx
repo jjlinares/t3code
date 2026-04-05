@@ -6,6 +6,7 @@ import { createHashHistory, createBrowserHistory } from "@tanstack/react-router"
 import "@xterm/xterm/css/xterm.css";
 import "./index.css";
 
+import { createHandledAsyncCallback } from "./appStartup";
 import { bootstrapServerAuth, getBootstrapServerAuth } from "./authBootstrap";
 import { isElectron } from "./env";
 import { getRouter } from "./router";
@@ -49,9 +50,7 @@ function renderBootstrapError(error: unknown) {
         <button
           type="button"
           className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-muted"
-          onClick={() => {
-            void startApp();
-          }}
+          onClick={runStartApp}
         >
           Retry
         </button>
@@ -69,4 +68,6 @@ async function startApp() {
   renderApp();
 }
 
-void startApp().catch(renderBootstrapError);
+const runStartApp = createHandledAsyncCallback(startApp, renderBootstrapError);
+
+runStartApp();
